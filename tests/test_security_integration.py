@@ -110,3 +110,16 @@ def test_cors_credentials_with_wildcard_origin_is_rejected() -> None:
                 trusted_hosts=["testserver"],
             )
         )
+
+
+def test_spoofed_xff_ignored_when_proxy_untrusted() -> None:
+    # Com trust_proxy=False (padrão), X-Forwarded-For forjado é ignorado:
+    # todas as requisições compartilham o bucket do IP da conexão, então o
+    # rate-limit dispara mesmo variando o cabeçalho — não dá para burlar.
+    client = _client(rate_limit_default="2/minute", trust_proxy=False)
+    r1 = client.get("/api/v1/health", headers={"X-Forwarded-For": "1.1.1.1"})
+    r2 = client.get("/api/v1/health", headers={"X-Forwarded-For": "2.2.2.2"})
+    r3 = client.get("/api/v1/health", headers={"X-Forwarded-For": "3.3.3.3"})
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r3.status_code == 429

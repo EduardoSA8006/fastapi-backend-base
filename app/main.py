@@ -21,6 +21,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "inseguro: reflete origens arbitrárias com credenciais."
         )
 
+    if not settings.debug and "*" in settings.trusted_hosts:
+        import warnings
+
+        warnings.warn(
+            "trusted_hosts=['*'] desativa a validação de Host header em "
+            "produção. Defina TRUSTED_HOSTS com os hosts reais.",
+            stacklevel=2,
+        )
+
     app = FastAPI(title=settings.app_name, debug=settings.debug)
 
     # Rate-limit (slowapi): estado + handler + middleware.
