@@ -39,7 +39,7 @@ def create_limiter(settings: Settings) -> Limiter:
     )
 
 
-async def rate_limit_exceeded_handler(
+def rate_limit_exceeded_handler(
     request: Request, exc: RateLimitExceeded
 ) -> Response:
     """Resposta JSON consistente para o erro 429, com Retry-After."""

@@ -46,3 +46,21 @@ def test_security_headers_present_on_404() -> None:
     response = client.get("/nonexistent")
     assert response.status_code == 404
     assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_csp_skipped_on_docs_path() -> None:
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    @app.get("/docs")
+    def fake_docs() -> dict[str, int]:
+        return {"x": 1}
+
+    client = TestClient(app)
+    response = client.get("/docs")
+    assert response.status_code == 200
+    assert "Content-Security-Policy" not in response.headers
+    # Os demais cabeçalhos continuam presentes mesmo nos caminhos isentos.
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
