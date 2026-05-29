@@ -4,9 +4,16 @@ from starlette.responses import JSONResponse, Response
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """Rejeita requisições cujo corpo excede o limite, via Content-Length."""
+    """Rejeita requisições cujo Content-Length excede max_body_size.
+
+    O corpo com tamanho exatamente igual ao limite é aceito.
+    """
 
     def __init__(self, app, max_body_size: int) -> None:
+        if max_body_size <= 0:
+            raise ValueError(
+                f"max_body_size must be positive, got {max_body_size}"
+            )
         super().__init__(app)
         self.max_body_size = max_body_size
 
@@ -18,6 +25,10 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
             try:
                 declared = int(content_length)
             except ValueError:
+                return JSONResponse(
+                    {"detail": "Invalid Content-Length"}, status_code=400
+                )
+            if declared < 0:
                 return JSONResponse(
                     {"detail": "Invalid Content-Length"}, status_code=400
                 )

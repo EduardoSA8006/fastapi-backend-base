@@ -13,6 +13,10 @@ def _build_app(max_body_size: int) -> FastAPI:
         body = await request.body()
         return {"size": len(body)}
 
+    @app.get("/nobody")
+    async def nobody() -> dict[str, str]:
+        return {"ok": "yes"}
+
     return app
 
 
@@ -36,3 +40,32 @@ def test_invalid_content_length_rejected() -> None:
         "/echo", content=b"x", headers={"Content-Length": "abc"}
     )
     assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid Content-Length"}
+
+
+def test_body_at_exact_limit_passes() -> None:
+    client = TestClient(_build_app(max_body_size=100))
+    response = client.post("/echo", content=b"x" * 100)
+    assert response.status_code == 200
+
+
+def test_body_one_byte_over_limit_rejected() -> None:
+    client = TestClient(_build_app(max_body_size=100))
+    response = client.post("/echo", content=b"x" * 101)
+    assert response.status_code == 413
+
+
+def test_negative_content_length_rejected() -> None:
+    client = TestClient(_build_app(max_body_size=100))
+    response = client.post(
+        "/echo", content=b"x", headers={"Content-Length": "-1"}
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid Content-Length"}
+
+
+def test_request_without_content_length_passes() -> None:
+    # GET sem corpo não envia Content-Length, exercitando o branch None.
+    client = TestClient(_build_app(max_body_size=100))
+    response = client.get("/nobody")
+    assert response.status_code == 200
