@@ -35,4 +35,14 @@ def test_hsts_disabled_by_default() -> None:
 def test_hsts_enabled() -> None:
     client = TestClient(_build_app(hsts_enabled=True))
     response = client.get("/ping")
-    assert "Strict-Transport-Security" in response.headers
+    assert (
+        response.headers["Strict-Transport-Security"]
+        == "max-age=63072000; includeSubDomains"
+    )
+
+
+def test_security_headers_present_on_404() -> None:
+    client = TestClient(_build_app())
+    response = client.get("/nonexistent")
+    assert response.status_code == 404
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
