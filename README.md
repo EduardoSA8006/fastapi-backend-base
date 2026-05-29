@@ -58,6 +58,38 @@ docker compose down            # para os containers
 docker compose down -v         # para e remove o volume do banco
 ```
 
+## Segurança
+
+A aplicação aplica um conjunto de proteções globais, configuráveis por variáveis
+de ambiente (veja `.env.example`):
+
+- **Rate limit** (slowapi): limite global por IP (`RATE_LIMIT_DEFAULT`, padrão
+  `100/minute`), com armazenamento no Redis em Docker (`RATE_LIMIT_STORAGE_URI`)
+  e respostas `429` com `Retry-After`. Pode ser desligado com
+  `RATE_LIMIT_ENABLED=false`. Endpoints específicos podem ter limites próprios
+  via `@limiter.limit(...)`.
+- **Security headers**: `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Content-Security-Policy`
+  (isento em `/docs`, `/redoc`, `/openapi.json`) e `Strict-Transport-Security`
+  (quando `HSTS_ENABLED=true`). Aplicados a todas as respostas, inclusive
+  rejeições (`400`/`413`/`429`).
+- **CORS**: origens/métodos/cabeçalhos vindos das settings. A combinação
+  `CORS_ALLOW_CREDENTIALS=true` com `CORS_ALLOW_ORIGINS=["*"]` é bloqueada na
+  inicialização por ser insegura.
+- **Trusted hosts**: bloqueia `Host` headers não permitidos (`400`). **Em
+  produção defina `TRUSTED_HOSTS`** com os hosts reais — o padrão `["*"]` desativa
+  a validação.
+- **Limite de tamanho de corpo**: rejeita corpos acima de `MAX_BODY_SIZE`
+  (`413`), contando os bytes reais do stream (fecha o bypass via
+  `Transfer-Encoding: chunked`).
+
+### IP atrás de proxy
+
+Por padrão o rate-limit usa o IP da conexão. Atrás de um proxy reverso confiável,
+defina `TRUST_PROXY=true`: o IP do cliente será o **mais à direita** de
+`X-Forwarded-For` (o que o proxy confiável acrescentou), evitando spoofing. A
+configuração assume **um único** proxy confiável à frente.
+
 ## Migrações de banco de dados (Alembic)
 
 Gerar uma nova migração a partir dos modelos:
