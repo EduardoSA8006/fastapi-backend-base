@@ -8,13 +8,21 @@ from app.core.config import Settings
 
 
 def build_key_func(settings: Settings):
-    """Cria a função de chave do rate-limit, respeitando a confiança em proxy."""
+    """Cria a função de chave do rate-limit, respeitando a confiança em proxy.
+
+    Assume UM único proxy reverso confiável à frente quando trust_proxy=True:
+    o IP real do cliente é a entrada mais à direita de X-Forwarded-For (a que o
+    proxy acrescentou). A entrada mais à esquerda é controlável pelo cliente e
+    não deve ser usada (permitiria burlar o rate-limit forjando IPs).
+    """
 
     def key_func(request: Request) -> str:
         if settings.trust_proxy:
             forwarded = request.headers.get("X-Forwarded-For")
             if forwarded:
-                return forwarded.split(",")[0].strip()
+                client_ip = forwarded.split(",")[-1].strip()
+                if client_ip:
+                    return client_ip
         return get_remote_address(request)
 
     return key_func
@@ -27,6 +35,7 @@ def create_limiter(settings: Settings) -> Limiter:
         default_limits=[settings.rate_limit_default],
         storage_uri=settings.rate_limit_storage_uri,
         enabled=settings.rate_limit_enabled,
+        headers_enabled=True,
     )
 
 
@@ -50,6 +59,9 @@ async def rate_limit_exceeded_handler(
 
     body: dict[str, object] = {"detail": "Rate limit exceeded"}
     if "Retry-After" in headers:
-        body["retry_after"] = int(headers["Retry-After"])
+        try:
+            body["retry_after"] = int(headers["Retry-After"])
+        except ValueError:
+            body["retry_after"] = headers["Retry-After"]
 
     return JSONResponse(content=body, status_code=429, headers=headers)
