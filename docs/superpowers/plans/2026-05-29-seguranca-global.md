@@ -394,7 +394,11 @@ def build_key_func(settings: Settings):
         if settings.trust_proxy:
             forwarded = request.headers.get("X-Forwarded-For")
             if forwarded:
-                return forwarded.split(",")[0].strip()
+                # IP mais à direita: o que o proxy confiável acrescentou.
+                # O mais à esquerda é forjável pelo cliente — NÃO usar.
+                client_ip = forwarded.split(",")[-1].strip()
+                if client_ip:
+                    return client_ip
         return get_remote_address(request)
 
     return key_func
