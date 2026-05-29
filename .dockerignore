@@ -1,0 +1,29 @@
+# Controle de versão
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Ambiente / dados locais
+.env
+*.db
+*.sqlite3
+
+# Testes / cache
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.idea/
+.vscode/
+
+# Docs / sistema
+.DS_Store
+README.md

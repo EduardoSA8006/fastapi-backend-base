@@ -1,0 +1,40 @@
+[project]
+name = "classup-backend"
+version = "0.1.0"
+description = "Backend da aplicação ClassUp em FastAPI"
+authors = [
+    {name = "guibson",email = "guibson@centranet.com.br"}
+]
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "fastapi (>=0.136.3,<0.137.0)",
+    "uvicorn[standard] (>=0.48.0,<0.49.0)",
+    "sqlalchemy (>=2.0.50,<3.0.0)",
+    "alembic (>=1.18.4,<2.0.0)",
+    "pydantic-settings (>=2.14.1,<3.0.0)",
+    "psycopg[binary] (>=3.3.4,<4.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.3,<10.0.0)",
+    "pytest-asyncio (>=1.4.0,<2.0.0)",
+    "httpx (>=0.28.1,<0.29.0)",
+    "ruff (>=0.15.15,<0.16.0)"
+]
