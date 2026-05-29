@@ -30,15 +30,16 @@ class BodySizeLimitMiddleware:
 
         content_length = Headers(scope=scope).get("content-length")
         if content_length is not None:
-            try:
-                declared = int(content_length)
-            except ValueError:
-                await self._reject(scope, receive, send, 400, "Invalid Content-Length")
+            # RFC 9110: Content-Length é um inteiro não-negativo, sem espaços.
+            if not content_length.isdigit():
+                await self._reject(
+                    scope, receive, send, 400, "Invalid Content-Length"
+                )
                 return
-            if declared < 0:
-                await self._reject(scope, receive, send, 400, "Invalid Content-Length")
-                return
-            if declared > self.max_body_size:
+            if int(content_length) > self.max_body_size:
+                # Não drenamos o corpo: drenar leria os bytes que este controle
+                # existe justamente para recusar (reintroduzindo o DoS). O
+                # servidor encerra a conexão após o 413.
                 await self._reject(
                     scope, receive, send, 413, "Request body too large"
                 )
@@ -66,9 +67,16 @@ class BodySizeLimitMiddleware:
             await self.app(scope, wrapped_receive, wrapped_send)
         except _ContentTooLarge:
             if response_started:
-                # Resposta já iniciada; não há como enviar 413 de forma limpa.
-                raise
-            await self._reject(scope, receive, send, 413, "Request body too large")
+                # Headers já foram enviados; não há como trocar o status para
+                # 413. Encerra o corpo da resposta de forma limpa, sem corromper
+                # o protocolo ASGI.
+                await send(
+                    {"type": "http.response.body", "body": b"", "more_body": False}
+                )
+                return
+            await self._reject(
+                scope, receive, send, 413, "Request body too large"
+            )
 
     @staticmethod
     async def _reject(
