@@ -19,6 +19,27 @@ class Settings(BaseSettings):
     # Banco de dados — padrão SQLite local para desenvolvimento.
     database_url: str = "sqlite:///./classup.db"
 
+    # Rate limit
+    rate_limit_enabled: bool = True
+    rate_limit_default: str = "100/minute"
+    rate_limit_storage_uri: str = "memory://"
+
+    # CORS
+    cors_allow_origins: list[str] = []
+    cors_allow_credentials: bool = False
+    cors_allow_methods: list[str] = ["*"]
+    cors_allow_headers: list[str] = ["*"]
+
+    # Trusted hosts
+    trusted_hosts: list[str] = ["*"]
+
+    # Body size (bytes)
+    max_body_size: int = 1_048_576  # 1 MB
+
+    # Security headers / proxy
+    hsts_enabled: bool = False
+    trust_proxy: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
