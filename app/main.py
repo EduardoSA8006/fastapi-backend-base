@@ -15,6 +15,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Cria e configura a instância da aplicação FastAPI."""
     settings = settings or get_settings()
 
+    if settings.cors_allow_credentials and "*" in settings.cors_allow_origins:
+        raise ValueError(
+            "cors_allow_credentials=True com cors_allow_origins=['*'] é "
+            "inseguro: reflete origens arbitrárias com credenciais."
+        )
+
     app = FastAPI(title=settings.app_name, debug=settings.debug)
 
     # Rate-limit (slowapi): estado + handler + middleware.
@@ -23,10 +29,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.limiter = limiter
         app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
-    # A ORDEM importa: o último adicionado é o mais externo (executa primeiro).
-    # Adiciona-se na ordem inversa da execução desejada.
-    app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.hsts_enabled)
-
+    # A ORDEM importa: o último adicionado é o mais EXTERNO (executa primeiro na
+    # entrada e por último na saída). SecurityHeaders fica o mais externo para
+    # que TODAS as respostas — inclusive as rejeições (400/413/429) geradas
+    # pelos demais middlewares — recebam os cabeçalhos de segurança.
+    # Ordem de execução na entrada:
+    #   SecurityHeaders -> TrustedHost -> CORS -> BodySize -> SlowAPI -> app
     if settings.rate_limit_enabled:
         app.add_middleware(SlowAPIMiddleware)
 
@@ -42,6 +50,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts
+    )
+    app.add_middleware(
+        SecurityHeadersMiddleware, hsts_enabled=settings.hsts_enabled
     )
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)

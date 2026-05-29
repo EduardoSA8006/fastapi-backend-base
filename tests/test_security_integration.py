@@ -70,3 +70,43 @@ def test_docs_renders_without_csp() -> None:
     response = client.get("/docs")
     assert response.status_code == 200
     assert "Content-Security-Policy" not in response.headers
+
+
+def test_security_headers_present_on_413() -> None:
+    client = _client(max_body_size=10)
+    response = client.post("/api/v1/health", content=b"x" * 50)
+    assert response.status_code == 413
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Frame-Options") == "DENY"
+
+
+def test_security_headers_present_on_429() -> None:
+    client = _client(rate_limit_default="1/minute")
+    client.get("/api/v1/health")
+    response = client.get("/api/v1/health")
+    assert response.status_code == 429
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_security_headers_present_on_400_bad_host() -> None:
+    client = _client(trusted_hosts=["example.com"])
+    response = client.get("/api/v1/health")
+    assert response.status_code == 400
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_cors_credentials_with_wildcard_origin_is_rejected() -> None:
+    import pytest
+
+    from app.core.config import Settings
+    from app.main import create_app
+
+    with pytest.raises(ValueError):
+        create_app(
+            Settings(
+                cors_allow_credentials=True,
+                cors_allow_origins=["*"],
+                rate_limit_storage_uri="memory://",
+                trusted_hosts=["testserver"],
+            )
+        )
