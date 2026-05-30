@@ -1,14 +1,16 @@
+from typing import Any
+
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
 
 
-def _client(**overrides) -> TestClient:
-    base = dict(
-        rate_limit_storage_uri="memory://",
-        trusted_hosts=["testserver"],
-    )
+def _client(**overrides: Any) -> TestClient:
+    base: dict[str, Any] = {
+        "rate_limit_storage_uri": "memory://",
+        "trusted_hosts": ["testserver"],
+    }
     base.update(overrides)
     return TestClient(create_app(Settings(**base)))
 
@@ -62,10 +64,7 @@ def test_cors_preflight_allows_configured_origin() -> None:
             "Access-Control-Request-Method": "GET",
         },
     )
-    assert (
-        response.headers.get("access-control-allow-origin")
-        == "http://allowed.test"
-    )
+    assert response.headers.get("access-control-allow-origin") == "http://allowed.test"
 
 
 def test_docs_renders_without_csp() -> None:
@@ -104,7 +103,7 @@ def test_cors_credentials_with_wildcard_origin_is_rejected() -> None:
     from app.core.config import Settings
     from app.main import create_app
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cors_allow_credentials"):
         create_app(
             Settings(
                 cors_allow_credentials=True,
@@ -131,14 +130,14 @@ def test_spoofed_xff_ignored_when_proxy_untrusted() -> None:
 # --- Guards de produção (ENVIRONMENT=production) ---
 
 
-def _prod_settings(**overrides) -> Settings:
-    base = dict(
-        environment="production",
-        debug=False,
-        trusted_hosts=["api.test"],
-        rate_limit_enabled=False,  # evita exigir redis nestes testes
-        rate_limit_storage_uri="memory://",
-    )
+def _prod_settings(**overrides: Any) -> Settings:
+    base: dict[str, Any] = {
+        "environment": "production",
+        "debug": False,
+        "trusted_hosts": ["api.test"],
+        "rate_limit_enabled": False,  # evita exigir redis nestes testes
+        "rate_limit_storage_uri": "memory://",
+    }
     base.update(overrides)
     return Settings(**base)
 
@@ -146,25 +145,23 @@ def _prod_settings(**overrides) -> Settings:
 def test_production_rejects_wildcard_trusted_hosts() -> None:
     import pytest
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="trusted_hosts"):
         create_app(_prod_settings(trusted_hosts=["*"]))
 
 
 def test_production_rejects_memory_rate_limit_store() -> None:
     import pytest
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="store compartilhado"):
         create_app(
-            _prod_settings(
-                rate_limit_enabled=True, rate_limit_storage_uri="memory://"
-            )
+            _prod_settings(rate_limit_enabled=True, rate_limit_storage_uri="memory://")
         )
 
 
 def test_production_rejects_debug_true() -> None:
     import pytest
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="DEBUG"):
         create_app(_prod_settings(debug=True))
 
 

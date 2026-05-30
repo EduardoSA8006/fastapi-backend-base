@@ -1,7 +1,9 @@
 from collections.abc import Iterator
+from typing import cast
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.middleware.body_size_limit import BodySizeLimitMiddleware
 
@@ -38,18 +40,14 @@ def test_body_over_limit_rejected() -> None:
 
 def test_invalid_content_length_rejected() -> None:
     client = TestClient(_build_app(max_body_size=100))
-    response = client.post(
-        "/echo", content=b"x", headers={"Content-Length": "abc"}
-    )
+    response = client.post("/echo", content=b"x", headers={"Content-Length": "abc"})
     assert response.status_code == 400
     assert response.json() == {"detail": "Invalid Content-Length"}
 
 
 def test_negative_content_length_rejected() -> None:
     client = TestClient(_build_app(max_body_size=100))
-    response = client.post(
-        "/echo", content=b"x", headers={"Content-Length": "-1"}
-    )
+    response = client.post("/echo", content=b"x", headers={"Content-Length": "-1"})
     assert response.status_code == 400
     assert response.json() == {"detail": "Invalid Content-Length"}
 
@@ -97,8 +95,8 @@ def test_chunked_body_within_limit_passes() -> None:
 def test_constructor_rejects_nonpositive_limit() -> None:
     import pytest
 
-    with pytest.raises(ValueError):
-        BodySizeLimitMiddleware(app=None, max_body_size=0)
+    with pytest.raises(ValueError, match="max_body_size"):
+        BodySizeLimitMiddleware(app=cast(ASGIApp, None), max_body_size=0)
 
 
 def test_chunked_multi_chunk_accumulation_rejected() -> None:
@@ -135,9 +133,7 @@ def test_empty_body_passes() -> None:
 
 def test_whitespace_content_length_rejected() -> None:
     client = TestClient(_build_app(max_body_size=100))
-    response = client.post(
-        "/echo", content=b"x", headers={"Content-Length": " 5 "}
-    )
+    response = client.post("/echo", content=b"x", headers={"Content-Length": " 5 "})
     assert response.status_code == 400
     assert response.json() == {"detail": "Invalid Content-Length"}
 
@@ -145,21 +141,21 @@ def test_whitespace_content_length_rejected() -> None:
 def test_constructor_rejects_negative_limit() -> None:
     import pytest
 
-    with pytest.raises(ValueError):
-        BodySizeLimitMiddleware(app=None, max_body_size=-10)
+    with pytest.raises(ValueError, match="max_body_size"):
+        BodySizeLimitMiddleware(app=cast(ASGIApp, None), max_body_size=-10)
 
 
 async def test_non_http_scope_passes_through() -> None:
     # Scopes não-HTTP (lifespan, websocket) devem passar sem alteração.
     called = {"value": False}
 
-    async def dummy_app(scope, receive, send) -> None:
+    async def dummy_app(scope: Scope, receive: Receive, send: Send) -> None:
         called["value"] = True
 
-    async def receive():
+    async def receive() -> Message:
         return {"type": "lifespan.startup"}
 
-    async def send(message) -> None:
+    async def send(message: Message) -> None:
         pass
 
     middleware = BodySizeLimitMiddleware(app=dummy_app, max_body_size=100)

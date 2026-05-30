@@ -1,7 +1,6 @@
 from collections.abc import Callable
 
 from slowapi import Limiter
-from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -50,10 +49,12 @@ def create_limiter(settings: Settings) -> Limiter:
     )
 
 
-def rate_limit_exceeded_handler(
-    request: Request, exc: RateLimitExceeded
-) -> JSONResponse:
-    """Resposta JSON consistente para o erro 429, com Retry-After."""
+def rate_limit_exceeded_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Resposta JSON consistente para o erro 429, com Retry-After.
+
+    `exc` é tipado como Exception para casar com o contrato de handler do
+    Starlette; não é usado (os dados do limite vêm de request.state).
+    """
     limit_data = getattr(request.state, "view_rate_limit", None)
     headers: dict[str, str] = {}
     if limit_data is not None:

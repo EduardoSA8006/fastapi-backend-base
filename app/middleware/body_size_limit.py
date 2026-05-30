@@ -17,9 +17,7 @@ class BodySizeLimitMiddleware:
 
     def __init__(self, app: ASGIApp, max_body_size: int) -> None:
         if max_body_size <= 0:
-            raise ValueError(
-                f"max_body_size must be positive, got {max_body_size}"
-            )
+            raise ValueError(f"max_body_size must be positive, got {max_body_size}")
         self.app = app
         self.max_body_size = max_body_size
 
@@ -32,17 +30,13 @@ class BodySizeLimitMiddleware:
         if content_length is not None:
             # RFC 9110: Content-Length é um inteiro não-negativo, sem espaços.
             if not content_length.isdigit():
-                await self._reject(
-                    scope, receive, send, 400, "Invalid Content-Length"
-                )
+                await self._reject(scope, receive, send, 400, "Invalid Content-Length")
                 return
             if int(content_length) > self.max_body_size:
                 # Não drenamos o corpo: drenar leria os bytes que este controle
                 # existe justamente para recusar (reintroduzindo o DoS). O
                 # servidor encerra a conexão após o 413.
-                await self._reject(
-                    scope, receive, send, 413, "Request body too large"
-                )
+                await self._reject(scope, receive, send, 413, "Request body too large")
                 return
 
         total = 0
@@ -74,9 +68,7 @@ class BodySizeLimitMiddleware:
                     {"type": "http.response.body", "body": b"", "more_body": False}
                 )
                 return
-            await self._reject(
-                scope, receive, send, 413, "Request body too large"
-            )
+            await self._reject(scope, receive, send, 413, "Request body too large")
 
     @staticmethod
     async def _reject(

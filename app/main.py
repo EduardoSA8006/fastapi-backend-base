@@ -79,9 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.rate_limit_enabled:
         app.add_middleware(SlowAPIMiddleware)
 
-    app.add_middleware(
-        BodySizeLimitMiddleware, max_body_size=settings.max_body_size
-    )
+    app.add_middleware(BodySizeLimitMiddleware, max_body_size=settings.max_body_size)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,
@@ -89,12 +87,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=settings.cors_allow_methods,
         allow_headers=settings.cors_allow_headers,
     )
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts
-    )
-    app.add_middleware(
-        SecurityHeadersMiddleware, hsts_enabled=settings.hsts_enabled
-    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
+    app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.hsts_enabled)
     app.add_middleware(RequestContextMiddleware)
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)

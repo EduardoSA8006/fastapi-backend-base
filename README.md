@@ -164,15 +164,22 @@ poetry run alembic upgrade head
 ## Testes
 
 ```bash
-poetry run pytest
+poetry run pytest        # roda os testes com cobertura (gate mínimo de 90%)
 ```
 
-## Lint / formatação
+A cobertura de `app/` é medida por `pytest-cov` e o build falha abaixo de 90%
+(`--cov-fail-under=90`, configurado em `pyproject.toml`).
+
+## Qualidade de código
 
 ```bash
-poetry run ruff check .
-poetry run ruff format .
+poetry run ruff check .          # lint (regras fortes: E,F,I,UP,B,S,SIM,PT,...)
+poetry run ruff format .         # formatação
+poetry run mypy .                # checagem de tipos (--strict)
+poetry run pip-audit             # auditoria de CVEs nas dependências
 ```
+
+Todos esses passos rodam no CI (`.github/workflows/ci.yml`) em cada push/PR.
 
 ## Estrutura do projeto
 

@@ -27,11 +27,53 @@ line-length = 88
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "S",      # flake8-bandit (segurança)
+    "ASYNC",  # flake8-async
+    "SIM",    # flake8-simplify
+    "PT",     # flake8-pytest-style
+    "C4",     # flake8-comprehensions
+    "DTZ",    # flake8-datetimez
+    "PIE",    # flake8-pie
+    "RUF",    # regras específicas do ruff
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Testes podem usar assert (S101) e acessar APIs privadas/de teste livremente.
+"tests/**" = ["S101"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Padrão do FastAPI: chamadas em defaults de argumentos (injeção de dependência).
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Body",
+    "fastapi.Form",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["app", "tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# slowapi não distribui informações de tipo (py.typed).
+module = ["slowapi.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "--cov=app --cov-report=term-missing --cov-fail-under=90"
 
 [dependency-groups]
 dev = [
@@ -39,5 +81,7 @@ dev = [
     "pytest-asyncio (>=1.4.0,<2.0.0)",
     "httpx (>=0.28.1,<0.29.0)",
     "ruff (>=0.15.15,<0.16.0)",
-    "pip-audit (>=2.10.0,<3.0.0)"
+    "pip-audit (>=2.10.0,<3.0.0)",
+    "mypy (>=2.1.0,<3.0.0)",
+    "pytest-cov (>=7.1.0,<8.0.0)"
 ]

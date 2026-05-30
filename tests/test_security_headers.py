@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -97,7 +99,7 @@ def test_streaming_response_is_not_buffered_and_gets_headers() -> None:
 
     @app.get("/stream")
     def stream() -> StreamingResponse:
-        def gen():
+        def gen() -> Iterator[bytes]:
             yield b"chunk1"
             yield b"chunk2"
 
