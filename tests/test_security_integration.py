@@ -18,7 +18,10 @@ def test_security_headers_on_real_app() -> None:
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert response.headers["Content-Security-Policy"] == "default-src 'self'"
+    assert (
+        response.headers["Content-Security-Policy"]
+        == "default-src 'self'; frame-ancestors 'none'"
+    )
 
 
 def test_rate_limit_returns_429_when_exceeded() -> None:

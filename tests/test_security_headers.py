@@ -23,7 +23,10 @@ def test_security_headers_present() -> None:
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert response.headers["Cross-Origin-Opener-Policy"] == "same-origin"
-    assert response.headers["Content-Security-Policy"] == "default-src 'self'"
+    assert (
+        response.headers["Content-Security-Policy"]
+        == "default-src 'self'; frame-ancestors 'none'"
+    )
 
 
 def test_hsts_disabled_by_default() -> None:
@@ -78,7 +81,10 @@ def test_csp_applied_on_path_with_exempt_prefix() -> None:
     client = TestClient(app)
     response = client.get("/docs-admin")
     assert response.status_code == 200
-    assert response.headers["Content-Security-Policy"] == "default-src 'self'"
+    assert (
+        response.headers["Content-Security-Policy"]
+        == "default-src 'self'; frame-ancestors 'none'"
+    )
 
 
 def test_streaming_response_is_not_buffered_and_gets_headers() -> None:
@@ -102,4 +108,7 @@ def test_streaming_response_is_not_buffered_and_gets_headers() -> None:
     assert response.status_code == 200
     assert response.text == "chunk1chunk2"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert response.headers["Content-Security-Policy"] == "default-src 'self'"
+    assert (
+        response.headers["Content-Security-Policy"]
+        == "default-src 'self'; frame-ancestors 'none'"
+    )

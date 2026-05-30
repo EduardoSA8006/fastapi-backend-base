@@ -76,10 +76,12 @@ de ambiente (veja `.env.example`):
   `RATE_LIMIT_ENABLED=false`. Endpoints específicos podem ter limites próprios
   via `@limiter.limit(...)`.
 - **Security headers**: `X-Content-Type-Options`, `X-Frame-Options`,
-  `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Content-Security-Policy`
-  (isento em `/docs`, `/redoc`, `/openapi.json`) e `Strict-Transport-Security`
+  `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`,
+  `Permissions-Policy`, `Content-Security-Policy` (com `frame-ancestors 'none'`;
+  isento em `/docs`, `/redoc`, `/openapi.json`) e `Strict-Transport-Security`
   (quando `HSTS_ENABLED=true`). Aplicados a todas as respostas, inclusive
-  rejeições (`400`/`413`/`429`).
+  rejeições (`400`/`413`/`429`). Obs.: a CSP tem valor prático maior em páginas
+  HTML do que em respostas JSON consumidas por `fetch`.
 - **CORS**: origens/métodos/cabeçalhos vindos das settings. A combinação
   `CORS_ALLOW_CREDENTIALS=true` com `CORS_ALLOW_ORIGINS=["*"]` é bloqueada na
   inicialização por ser insegura.
@@ -88,7 +90,14 @@ de ambiente (veja `.env.example`):
   a validação.
 - **Limite de tamanho de corpo**: rejeita corpos acima de `MAX_BODY_SIZE`
   (`413`), contando os bytes reais do stream (fecha o bypass via
-  `Transfer-Encoding: chunked`).
+  `Transfer-Encoding: chunked`). Premissa: a contagem do stream **efetiva-se
+  quando o corpo é consumido** pelo handler; o caso com `Content-Length`
+  declarado é coberto imediatamente pelo fast-path (rejeição antes da leitura).
+- **Observabilidade**: cada requisição recebe um `X-Request-ID` (reaproveitado
+  se enviado pelo cliente) e é logada com método, caminho, status e IP;
+  rejeições (`4xx`) saem como WARNING e erros (`5xx`) como ERROR.
+- **Fingerprint**: o servidor sobe com `--no-server-header` (não emite
+  `Server: uvicorn`).
 
 ### IP atrás de proxy
 
@@ -116,6 +125,27 @@ Além disso, `/docs`, `/redoc` e `/openapi.json` ficam **desligados** em produç
 (não expõem a superfície da API). Para deploys com múltiplas réplicas, defina
 `RUN_MIGRATIONS_ON_START=false` e rode `alembic upgrade head` como etapa separada
 de deploy (evita corrida entre containers).
+
+### TLS
+
+A aplicação não termina TLS. No deploy de produção:
+
+- Faça a **terminação TLS no proxy reverso** (nginx/traefik/ALB) e redirecione
+  `HTTP → HTTPS`.
+- Com HTTPS ativo, defina `HSTS_ENABLED=true`.
+- Para Postgres externo/gerenciado, exija TLS na conexão:
+  `DATABASE_URL=postgresql+psycopg://.../classup?sslmode=require`.
+
+### Riscos residuais e roadmap de segurança
+
+- **Rate-limit apenas por IP**: mitiga rajadas simples, mas é contornável/impreciso
+  sob **rotação de IP / botnet** e penaliza usuários atrás de **NAT compartilhado**
+  (mesmo IP). Quando houver autenticação, adicionar limite **por conta** e
+  **backoff exponencial** em falhas de login (anti credential-stuffing).
+- **`Cache-Control: no-store`** deve ser aplicado nos endpoints sensíveis quando
+  existirem (dados de usuário, tokens), evitando cache por intermediários.
+- **CI/SCA**: o pipeline (`.github/workflows/ci.yml`) roda `ruff`, `pytest` e
+  `pip-audit` (CVEs em dependências) em cada push/PR.
 
 ## Migrações de banco de dados (Alembic)
 

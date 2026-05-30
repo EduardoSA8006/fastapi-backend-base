@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: poetry
+
+      - name: Instalar dependências
+        run: poetry install --no-interaction
+
+      - name: Lint (ruff)
+        run: poetry run ruff check .
+
+      - name: Testes (pytest)
+        run: poetry run pytest -q
+
+      - name: Auditoria de dependências (pip-audit)
+        run: poetry run pip-audit

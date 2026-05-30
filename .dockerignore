@@ -14,7 +14,11 @@ env/
 *.db
 *.sqlite3
 
-# Testes / cache
+# Testes / cache (não precisam ir para a imagem; alembic/ permanece — é usado
+# pelo entrypoint)
+tests/
+docs/
+.github/
 .pytest_cache/
 .ruff_cache/
 .coverage

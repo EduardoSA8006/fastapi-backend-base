@@ -3,6 +3,17 @@ from collections.abc import Sequence
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+# Permissions-Policy restritivo: desliga APIs do browser que a API não usa.
+DEFAULT_PERMISSIONS_POLICY = (
+    "accelerometer=(), autoplay=(), camera=(), display-capture=(), "
+    "encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), "
+    "magnetometer=(), microphone=(), midi=(), payment=(), "
+    "picture-in-picture=(), usb=()"
+)
+
+# frame-ancestors 'none' complementa o X-Frame-Options (impede enquadramento).
+DEFAULT_CSP = "default-src 'self'; frame-ancestors 'none'"
+
 
 class SecurityHeadersMiddleware:
     """Injeta cabeçalhos de segurança em todas as respostas.
@@ -21,12 +32,14 @@ class SecurityHeadersMiddleware:
         self,
         app: ASGIApp,
         hsts_enabled: bool = False,
-        csp: str = "default-src 'self'",
+        csp: str = DEFAULT_CSP,
+        permissions_policy: str = DEFAULT_PERMISSIONS_POLICY,
         csp_exempt_paths: Sequence[str] = ("/docs", "/redoc", "/openapi.json"),
     ) -> None:
         self.app = app
         self.hsts_enabled = hsts_enabled
         self.csp = csp
+        self.permissions_policy = permissions_policy
         self.csp_exempt_paths = frozenset(csp_exempt_paths)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -44,6 +57,8 @@ class SecurityHeadersMiddleware:
                 headers["X-Frame-Options"] = "DENY"
                 headers["Referrer-Policy"] = "no-referrer"
                 headers["Cross-Origin-Opener-Policy"] = "same-origin"
+                headers["Cross-Origin-Resource-Policy"] = "same-origin"
+                headers["Permissions-Policy"] = self.permissions_policy
                 if apply_csp:
                     headers["Content-Security-Policy"] = self.csp
                 if self.hsts_enabled:
