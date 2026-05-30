@@ -185,6 +185,10 @@ Portanto, o limite **precisa existir também na borda**:
 - **Credenciais**: em produção a aplicação recusa o boot com senha de banco
   default/fraca; o Redis sobe com `--requirepass`. Use segredos fortes
   (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`) — nunca os defaults de desenvolvimento.
+- **API privada do slowapi**: o handler de `429` usa `Limiter._inject_headers`
+  (método privado) para reproduzir os cabeçalhos `Retry-After`/`X-RateLimit-*`.
+  Está protegido por `try/except` (degrada para um `429` limpo) e o `slowapi`
+  está pinado em `<0.2.0` — **reavaliar a cada bump de versão**.
 - **CI/segurança**: o pipeline (`.github/workflows/ci.yml`) roda `ruff` (lint +
   SAST via regras `S`/bandit), `ruff format`, `mypy --strict`, `pytest`
   (cobertura ≥90%), `pip-audit` (CVEs em deps), **gitleaks** (secret scanning) e

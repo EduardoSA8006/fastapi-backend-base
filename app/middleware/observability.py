@@ -63,11 +63,20 @@ class RequestContextMiddleware:
 
         await self.app(scope, receive, send_with_request_id)
 
-        log = "%s %s -> %s id=%s client=%s"
-        args = (method, path, status_code, request_id, client_host)
+        message = (
+            f"{method} {path} -> {status_code} id={request_id} client={client_host}"
+        )
+        # Campos estruturados (correlação em SIEM); o JsonFormatter os escapa.
+        extra = {
+            "method": method,
+            "path": path,
+            "status": status_code,
+            "request_id": request_id,
+            "client": client_host,
+        }
         if status_code >= 500:
-            logger.error(log, *args)
+            logger.error(message, extra=extra)
         elif status_code >= 400:
-            logger.warning(log, *args)
+            logger.warning(message, extra=extra)
         else:
-            logger.info(log, *args)
+            logger.info(message, extra=extra)
