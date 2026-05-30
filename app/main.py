@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -12,6 +14,8 @@ from app.core.logging import configure_logging
 from app.middleware.body_size_limit import BodySizeLimitMiddleware
 from app.middleware.observability import RequestContextMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
+
+logger = logging.getLogger("classup")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -45,6 +49,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise ValueError(
                 "Rate-limit em produção exige um store compartilhado "
                 "(redis://...), não memory://."
+            )
+        # Atrás de proxy reverso (cenário do deploy recomendado), sem trust_proxy
+        # o IP de conexão é o do proxy — todos os clientes caem num único bucket
+        # (rate-limit colapsado / auto-DoS). Avisa para o operador configurar.
+        if settings.rate_limit_enabled and not settings.trust_proxy:
+            logger.warning(
+                "ENVIRONMENT=production com TRUST_PROXY=false: se houver proxy "
+                "reverso à frente, o rate-limit colapsa num único bucket (IP do "
+                "proxy). Defina TRUST_PROXY=true e NUM_TRUSTED_PROXIES corretamente."
             )
 
     # Documentação interativa só fora de produção (não expõe a superfície da API).

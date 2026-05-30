@@ -16,13 +16,24 @@ RUN pip install "poetry==${POETRY_VERSION}"
 COPY pyproject.toml poetry.lock ./
 RUN poetry install --no-root --only main
 
-# Copia o código da aplicação.
-COPY . .
+# Usuário sem privilégios: limita o impacto de uma eventual RCE na aplicação.
+RUN groupadd -r app && useradd -r -g app -d /app app
+
+# Copia o código da aplicação já com dono não-root.
+COPY --chown=app:app . .
 
 # Garante que o entrypoint seja executável.
 RUN chmod +x /app/docker/entrypoint.sh
 
+USER app
+
 EXPOSE 8000
+
+# Healthcheck da própria API. Obs.: em produção com TRUSTED_HOSTS restrito, o
+# host do probe (127.0.0.1) precisa estar permitido, ou use o probe do
+# orquestrador com o Host correto.
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=2).status==200 else 1)"
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 # --no-server-header reduz fingerprint (não emite "Server: uvicorn").

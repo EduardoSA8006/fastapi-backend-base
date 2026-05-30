@@ -1,4 +1,5 @@
 import logging
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +30,21 @@ def test_request_id_generated_when_absent() -> None:
 def test_request_id_echoed_when_provided() -> None:
     response = _client().get("/api/v1/health", headers={"X-Request-ID": "fixed-id-123"})
     assert response.headers.get("X-Request-ID") == "fixed-id-123"
+
+
+def test_invalid_request_id_is_replaced_by_safe_uuid() -> None:
+    # IDs com caracteres inseguros (espaços, controle) são descartados e um
+    # uuid seguro é gerado — base do fix de log injection (CRLF não passa).
+    bad = "id com espacos e ; simbolos"
+    response = _client().get("/api/v1/health", headers={"X-Request-ID": bad})
+    returned = response.headers["X-Request-ID"]
+    assert returned != bad
+    assert re.fullmatch(r"[0-9a-f]{32}", returned) is not None
+
+
+def test_overlong_request_id_is_replaced() -> None:
+    response = _client().get("/api/v1/health", headers={"X-Request-ID": "a" * 200})
+    assert re.fullmatch(r"[0-9a-f]{32}", response.headers["X-Request-ID"]) is not None
 
 
 def test_rejection_is_logged_as_warning(

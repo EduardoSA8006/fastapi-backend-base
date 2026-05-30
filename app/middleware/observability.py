@@ -1,10 +1,15 @@
 import logging
+import re
 from uuid import uuid4
 
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger("classup.access")
+
+# X-Request-ID aceito do cliente: apenas caracteres seguros e tamanho limitado.
+# Evita CRLF/controle (log injection) e IDs absurdamente longos.
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
 class RequestContextMiddleware:
@@ -29,7 +34,11 @@ class RequestContextMiddleware:
         incoming = None
         for name, value in scope.get("headers", []):
             if name == b"x-request-id":
-                incoming = value.decode("latin-1")
+                candidate = value.decode("latin-1")
+                # Só aceita o ID do cliente se for seguro; senão, ignora e gera
+                # um novo (impede log injection via CR/LF e IDs gigantes).
+                if _REQUEST_ID_RE.match(candidate):
+                    incoming = candidate
                 break
         request_id = incoming or uuid4().hex
 

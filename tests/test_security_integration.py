@@ -1,5 +1,7 @@
+import logging
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
@@ -183,3 +185,17 @@ def test_production_valid_config_boots() -> None:
         )
     )
     assert app is not None
+
+
+def test_production_without_trust_proxy_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="classup"):
+        create_app(
+            _prod_settings(
+                rate_limit_enabled=True,
+                rate_limit_storage_uri="redis://redis:6379/0",
+                trust_proxy=False,
+            )
+        )
+    assert any("colapsa num único bucket" in r.getMessage() for r in caplog.records)
