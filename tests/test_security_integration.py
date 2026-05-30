@@ -123,3 +123,63 @@ def test_spoofed_xff_ignored_when_proxy_untrusted() -> None:
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r3.status_code == 429
+
+
+# --- Guards de produção (ENVIRONMENT=production) ---
+
+
+def _prod_settings(**overrides) -> Settings:
+    base = dict(
+        environment="production",
+        debug=False,
+        trusted_hosts=["api.test"],
+        rate_limit_enabled=False,  # evita exigir redis nestes testes
+        rate_limit_storage_uri="memory://",
+    )
+    base.update(overrides)
+    return Settings(**base)
+
+
+def test_production_rejects_wildcard_trusted_hosts() -> None:
+    import pytest
+
+    with pytest.raises(ValueError):
+        create_app(_prod_settings(trusted_hosts=["*"]))
+
+
+def test_production_rejects_memory_rate_limit_store() -> None:
+    import pytest
+
+    with pytest.raises(ValueError):
+        create_app(
+            _prod_settings(
+                rate_limit_enabled=True, rate_limit_storage_uri="memory://"
+            )
+        )
+
+
+def test_production_rejects_debug_true() -> None:
+    import pytest
+
+    with pytest.raises(ValueError):
+        create_app(_prod_settings(debug=True))
+
+
+def test_production_disables_docs() -> None:
+    client = TestClient(create_app(_prod_settings()))
+    # O Host precisa ser permitido para chegar à rota.
+    headers = {"host": "api.test"}
+    assert client.get("/docs", headers=headers).status_code == 404
+    assert client.get("/openapi.json", headers=headers).status_code == 404
+    assert client.get("/api/v1/health", headers=headers).status_code == 200
+
+
+def test_production_valid_config_boots() -> None:
+    # Configuração de produção válida (redis + hosts reais + sem debug) sobe.
+    app = create_app(
+        _prod_settings(
+            rate_limit_enabled=True,
+            rate_limit_storage_uri="redis://redis:6379/0",
+        )
+    )
+    assert app is not None

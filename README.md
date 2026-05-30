@@ -92,10 +92,30 @@ de ambiente (veja `.env.example`):
 
 ### IP atrás de proxy
 
-Por padrão o rate-limit usa o IP da conexão. Atrás de um proxy reverso confiável,
-defina `TRUST_PROXY=true`: o IP do cliente será o **mais à direita** de
-`X-Forwarded-For` (o que o proxy confiável acrescentou), evitando spoofing. A
-configuração assume **um único** proxy confiável à frente.
+Por padrão o rate-limit usa o IP da conexão. Atrás de proxy(ies) reverso(s)
+confiável(is), defina `TRUST_PROXY=true` e `NUM_TRUSTED_PROXIES` com o número de
+saltos confiáveis (ex.: LB + nginx = `2`). O IP do cliente é extraído contando
+esses saltos a partir da **direita** de `X-Forwarded-For` (as entradas que os
+proxies confiáveis acrescentaram), evitando spoofing.
+
+> `TRUST_PROXY=true` só é seguro se houver de fato `NUM_TRUSTED_PROXIES` proxies
+> reescrevendo o header à frente. Habilitá-lo sem isso permite que o cliente
+> controle o valor e burle o rate-limit.
+
+### Produção (ENVIRONMENT=production)
+
+Defina `ENVIRONMENT=production`. Nesse modo a aplicação **falha ao iniciar** se
+houver configuração insegura, forçando o operador a corrigir:
+
+- `TRUSTED_HOSTS` contém `"*"` → erro (defina os hosts reais).
+- `RATE_LIMIT_STORAGE_URI` é `memory://` → erro (use `redis://...`; em múltiplos
+  workers/réplicas o `memory://` torna o limite inefetivo).
+- `DEBUG=true` → erro (evita vazar stack traces).
+
+Além disso, `/docs`, `/redoc` e `/openapi.json` ficam **desligados** em produção
+(não expõem a superfície da API). Para deploys com múltiplas réplicas, defina
+`RUN_MIGRATIONS_ON_START=false` e rode `alembic upgrade head` como etapa separada
+de deploy (evita corrida entre containers).
 
 ## Migrações de banco de dados (Alembic)
 

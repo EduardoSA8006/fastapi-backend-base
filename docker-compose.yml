@@ -44,8 +44,14 @@ services:
         condition: service_healthy
     environment:
       APP_NAME: ${APP_NAME:-ClassUp Backend}
+      # development por padrão (dev stack). Em produção defina ENVIRONMENT=production
+      # — isso ativa os guards (Host, store do rate-limit, debug) e desliga /docs.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-false}
       API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      # Em produção com múltiplas réplicas, defina false e rode a migração como
+      # etapa de deploy separada.
+      RUN_MIGRATIONS_ON_START: ${RUN_MIGRATIONS_ON_START:-true}
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}

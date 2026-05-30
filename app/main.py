@@ -15,22 +15,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Cria e configura a instância da aplicação FastAPI."""
     settings = settings or get_settings()
 
+    # Guard universal (vale em qualquer ambiente): CORS com credenciais + origem
+    # curinga reflete origens arbitrárias com credenciais — sempre inseguro.
     if settings.cors_allow_credentials and "*" in settings.cors_allow_origins:
         raise ValueError(
             "cors_allow_credentials=True com cors_allow_origins=['*'] é "
             "inseguro: reflete origens arbitrárias com credenciais."
         )
 
-    if not settings.debug and "*" in settings.trusted_hosts:
-        import warnings
+    # Guards que falham duro em produção (ENVIRONMENT=production).
+    if settings.is_production:
+        if settings.debug:
+            raise ValueError(
+                "DEBUG=true não é permitido em produção (vaza stack traces)."
+            )
+        if "*" in settings.trusted_hosts:
+            raise ValueError(
+                "trusted_hosts=['*'] em produção desativa a validação de Host. "
+                "Defina TRUSTED_HOSTS com os hosts reais."
+            )
+        if settings.rate_limit_enabled and settings.rate_limit_storage_uri.startswith(
+            "memory://"
+        ):
+            raise ValueError(
+                "Rate-limit em produção exige um store compartilhado "
+                "(redis://...), não memory://."
+            )
 
-        warnings.warn(
-            "trusted_hosts=['*'] desativa a validação de Host header em "
-            "produção. Defina TRUSTED_HOSTS com os hosts reais.",
-            stacklevel=2,
-        )
-
-    app = FastAPI(title=settings.app_name, debug=settings.debug)
+    # Documentação interativa só fora de produção (não expõe a superfície da API).
+    docs_enabled = not settings.is_production
+    app = FastAPI(
+        title=settings.app_name,
+        debug=settings.debug,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
+    )
 
     # Rate-limit (slowapi): estado + handler + middleware.
     if settings.rate_limit_enabled:

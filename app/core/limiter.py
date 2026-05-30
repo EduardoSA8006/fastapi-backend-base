@@ -12,19 +12,28 @@ from app.core.config import Settings
 def build_key_func(settings: Settings) -> Callable[[Request], str]:
     """Cria a função de chave do rate-limit, respeitando a confiança em proxy.
 
-    Assume UM único proxy reverso confiável à frente quando trust_proxy=True:
-    o IP real do cliente é a entrada mais à direita de X-Forwarded-For (a que o
-    proxy acrescentou). A entrada mais à esquerda é controlável pelo cliente e
-    não deve ser usada (permitiria burlar o rate-limit forjando IPs).
+    Quando trust_proxy=True, o IP real do cliente é extraído de X-Forwarded-For
+    contando `num_trusted_proxies` saltos a partir da direita: as entradas mais à
+    direita são as que os proxies confiáveis acrescentaram, então o cliente é a
+    `num_trusted_proxies`-ésima entrada de trás para frente. As entradas mais à
+    esquerda são controláveis pelo cliente e não devem ser usadas (permitiriam
+    burlar o rate-limit forjando IPs).
+
+    ATENÇÃO: trust_proxy=True só é seguro com `num_trusted_proxies` proxies reais
+    reescrevendo X-Forwarded-For à frente. Habilitá-lo sem esse proxy permite que
+    o cliente controle o valor e burle o limite.
     """
 
     def key_func(request: Request) -> str:
         if settings.trust_proxy:
             forwarded = request.headers.get("X-Forwarded-For")
             if forwarded:
-                client_ip = forwarded.split(",")[-1].strip()
-                if client_ip:
-                    return client_ip
+                parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+                hops = settings.num_trusted_proxies
+                # Só confia se há entradas suficientes para os saltos esperados;
+                # caso contrário, recorre ao IP da conexão (seguro).
+                if hops >= 1 and len(parts) >= hops:
+                    return parts[-hops]
         return get_remote_address(request)
 
     return key_func

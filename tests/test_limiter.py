@@ -57,3 +57,21 @@ def test_key_func_single_proxy_entry() -> None:
     key_func = build_key_func(settings)
     request = _FakeRequest(host="10.0.0.1", forwarded_for="203.0.113.7")
     assert key_func(request) == "203.0.113.7"
+
+
+def test_key_func_two_trusted_proxies_uses_correct_hop() -> None:
+    # Com 2 proxies (ex.: LB + nginx), XFF = "cliente, ip_lb"; o IP real do
+    # cliente é o penúltimo (2 saltos a partir da direita).
+    settings = Settings(trust_proxy=True, num_trusted_proxies=2)
+    key_func = build_key_func(settings)
+    request = _FakeRequest(host="10.0.0.1", forwarded_for="9.9.9.9, 172.16.0.2")
+    assert key_func(request) == "9.9.9.9"
+
+
+def test_key_func_falls_back_when_fewer_entries_than_trusted_proxies() -> None:
+    # Menos entradas que os saltos esperados → não dá para confiar; usa o IP
+    # da conexão (evita aceitar XFF forjado e incompleto).
+    settings = Settings(trust_proxy=True, num_trusted_proxies=2)
+    key_func = build_key_func(settings)
+    request = _FakeRequest(host="10.0.0.1", forwarded_for="1.1.1.1")
+    assert key_func(request) == "10.0.0.1"

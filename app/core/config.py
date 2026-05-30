@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
+    # Ambiente de execução. Em "production" os guards de segurança falham duro
+    # (Host, store do rate-limit, debug) e a documentação interativa é desligada.
+    environment: str = "development"
+
     # Banco de dados — padrão SQLite local para desenvolvimento.
     database_url: str = "sqlite:///./classup.db"
 
@@ -39,6 +43,16 @@ class Settings(BaseSettings):
     # Security headers / proxy
     hsts_enabled: bool = False
     trust_proxy: bool = False
+    # Quantidade de proxies reversos confiáveis à frente. Usado (quando
+    # trust_proxy=true) para extrair o IP real do cliente de X-Forwarded-For:
+    # o cliente é a entrada acrescentada pelo proxy mais externo. Ex.: LB +
+    # nginx = 2. Só tem efeito com trust_proxy=true.
+    num_trusted_proxies: int = 1
+
+    @property
+    def is_production(self) -> bool:
+        """Indica se a aplicação roda em ambiente de produção."""
+        return self.environment.strip().lower() == "production"
 
 
 @lru_cache
