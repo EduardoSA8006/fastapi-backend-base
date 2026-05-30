@@ -41,3 +41,28 @@ jobs:
 
       - name: Auditoria de dependências (pip-audit)
         run: poetry run pip-audit
+
+  # SAST do código Python já é coberto pelas regras `S` (bandit) do ruff no job
+  # acima; aqui ficam o secret scanning e o scan da imagem Docker.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # histórico completo para o secret scanning
+
+      - name: Secret scanning (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build da imagem
+        run: docker build -t classup-backend:ci .
+
+      - name: Scan da imagem (trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: classup-backend:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy.engine import make_url
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -16,6 +17,9 @@ from app.middleware.observability import RequestContextMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 
 logger = logging.getLogger("classup")
+
+# Senhas notoriamente fracas/default que não podem ir para produção.
+_WEAK_DB_PASSWORDS = {"classup", "postgres", "password", "changeme", "admin", ""}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -50,6 +54,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Rate-limit em produção exige um store compartilhado "
                 "(redis://...), não memory://."
             )
+        # Credenciais default/fracas de banco não podem ir para produção
+        # (SQLite não tem senha, então é ignorado).
+        if not settings.database_url.startswith("sqlite"):
+            db_password = make_url(settings.database_url).password or ""
+            if db_password in _WEAK_DB_PASSWORDS:
+                raise ValueError(
+                    "Senha de banco default/fraca não é permitida em produção. "
+                    "Use uma senha forte na DATABASE_URL."
+                )
         # Atrás de proxy reverso (cenário do deploy recomendado), sem trust_proxy
         # o IP de conexão é o do proxy — todos os clientes caem num único bucket
         # (rate-limit colapsado / auto-DoS). Avisa para o operador configurar.

@@ -23,12 +23,15 @@ services:
     image: redis:7-alpine
     container_name: classup-redis
     restart: unless-stopped
+    # Exige senha mesmo na rede interna (um container comprometido não conecta
+    # sem credencial; impede FLUSHALL/leitura anônima das chaves do rate-limit).
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-classup}"]
     # Sem `ports:` — o Redis NÃO é exposto ao host. Acessível apenas pela rede
     # interna do Docker (pelo serviço `api`), via o hostname `redis`.
     expose:
       - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-classup}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -55,9 +58,20 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
-      RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+      RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-classup}@redis:6379/0
     ports:
       - "${API_PORT:-8001}:8000"
+    # Endurecimento do container (anti-DoS / contenção):
+    read_only: true            # rootfs somente leitura
+    tmpfs:
+      - /tmp                   # único ponto gravável (efêmero)
+    security_opt:
+      - no-new-privileges:true # impede escalonamento via setuid
+    cap_drop:
+      - ALL                    # nenhuma capability do kernel
+    pids_limit: 256            # limita fork bombs
+    cpus: 1.0                  # teto de CPU
+    mem_limit: 512m            # teto de memória
 
 volumes:
   postgres_data:

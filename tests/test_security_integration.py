@@ -187,6 +187,26 @@ def test_production_valid_config_boots() -> None:
     assert app is not None
 
 
+def test_production_rejects_weak_db_password() -> None:
+    with pytest.raises(ValueError, match="fraca"):
+        create_app(
+            _prod_settings(
+                database_url="postgresql+psycopg://classup:classup@db:5432/classup"
+            )
+        )
+
+
+def test_production_accepts_strong_db_password() -> None:
+    app = create_app(
+        _prod_settings(
+            database_url=(
+                "postgresql+psycopg://classup:S3nhaForteAleatoria123@db:5432/classup"
+            )
+        )
+    )
+    assert app is not None
+
+
 def test_production_without_trust_proxy_warns(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

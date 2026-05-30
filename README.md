@@ -136,16 +136,42 @@ A aplicação não termina TLS. No deploy de produção:
 - Para Postgres externo/gerenciado, exija TLS na conexão:
   `DATABASE_URL=postgresql+psycopg://.../classup?sslmode=require`.
 
+### Defesa em profundidade no proxy/borda
+
+O limite de tamanho de corpo da aplicação é, por natureza, **tardio**: a contagem
+real de bytes só dispara quando o handler **consome** o corpo. Uma requisição
+`Transfer-Encoding: chunked` para um endpoint que não lê o corpo não é contada
+pela app (o fast-path por `Content-Length` cobre apenas o caso declarado).
+Portanto, o limite **precisa existir também na borda**:
+
+- nginx: `client_max_body_size 1m;` · traefik/ALB: limite equivalente.
+- Timeouts e limites de conexão no proxy (anti slowloris), além dos do uvicorn
+  (`--limit-concurrency`, `--timeout-keep-alive`).
+
 ### Riscos residuais e roadmap de segurança
 
 - **Rate-limit apenas por IP**: mitiga rajadas simples, mas é contornável/impreciso
   sob **rotação de IP / botnet** e penaliza usuários atrás de **NAT compartilhado**
   (mesmo IP). Quando houver autenticação, adicionar limite **por conta** e
   **backoff exponencial** em falhas de login (anti credential-stuffing).
+- **Rate-limit fail-open**: se o Redis ficar indisponível, o `slowapi`/`limits`
+  tende a **liberar** as requisições (fail-open) — derrubar o Redis equivale a
+  desligar o rate-limit. **Monitore** a disponibilidade do store; para endpoints
+  sensíveis (login, futuramente) avalie um comportamento **fail-closed**.
+- **`NUM_TRUSTED_PROXIES` incorreto**: se o valor for **maior** que o número real
+  de proxies (ou `TRUST_PROXY=true` sem proxy reescrevendo o header), o IP
+  extraído cai numa entrada **controlável pelo cliente** → spoofing e bypass do
+  rate-limit. O fallback do app só cobre o caso de entradas _de menos_; o número
+  correto de saltos é responsabilidade do operador. Configure com cuidado.
 - **`Cache-Control: no-store`** deve ser aplicado nos endpoints sensíveis quando
   existirem (dados de usuário, tokens), evitando cache por intermediários.
-- **CI/SCA**: o pipeline (`.github/workflows/ci.yml`) roda `ruff`, `pytest` e
-  `pip-audit` (CVEs em dependências) em cada push/PR.
+- **Credenciais**: em produção a aplicação recusa o boot com senha de banco
+  default/fraca; o Redis sobe com `--requirepass`. Use segredos fortes
+  (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`) — nunca os defaults de desenvolvimento.
+- **CI/segurança**: o pipeline (`.github/workflows/ci.yml`) roda `ruff` (lint +
+  SAST via regras `S`/bandit), `ruff format`, `mypy --strict`, `pytest`
+  (cobertura ≥90%), `pip-audit` (CVEs em deps), **gitleaks** (secret scanning) e
+  **trivy** (CVEs da imagem Docker) em cada push/PR.
 
 ## Migrações de banco de dados (Alembic)
 

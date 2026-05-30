@@ -36,5 +36,11 @@ HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=2).status==200 else 1)"
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-# --no-server-header reduz fingerprint (não emite "Server: uvicorn").
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]
+# --no-server-header reduz fingerprint; --limit-concurrency e --timeout-keep-alive
+# mitigam slowloris/exaustão. Em produção, prefira gunicorn + UvicornWorker com
+# múltiplos workers (o guard de produção já força redis:// p/ o rate-limit).
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--no-server-header", \
+     "--limit-concurrency", "100", \
+     "--timeout-keep-alive", "5"]
