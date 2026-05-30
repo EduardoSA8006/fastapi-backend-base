@@ -7,8 +7,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-classup}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-classup}
       POSTGRES_DB: ${POSTGRES_DB:-classup}
-    ports:
-      - "5432:5432"
+    # Sem `ports:` — o Postgres NÃO é exposto ao host. Acessível apenas pela
+    # rede interna do Docker (pelo serviço `api`), via o hostname `db`.
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,6 +23,10 @@ services:
     image: redis:7-alpine
     container_name: classup-redis
     restart: unless-stopped
+    # Sem `ports:` — o Redis NÃO é exposto ao host. Acessível apenas pela rede
+    # interna do Docker (pelo serviço `api`), via o hostname `redis`.
+    expose:
+      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

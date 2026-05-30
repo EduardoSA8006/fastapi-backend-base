@@ -41,10 +41,17 @@ docker compose up -d --build
 ```
 
 - API: `http://localhost:8001` (Swagger em `/docs`, healthcheck em `/api/v1/health`)
-- PostgreSQL: exposto em `localhost:5432`
+- PostgreSQL e Redis: **sem porta no host** — acessíveis apenas pela rede
+  interna do Docker, exclusivamente através da API (hostnames `db` e `redis`).
 
-> A porta da API no host é **8001** por padrão (mapeada para a 8000 do
-> container). Para usar outra porta, defina `API_PORT` no `.env` ou no ambiente.
+> A **API é o único serviço exposto ao host**. Postgres e Redis não publicam
+> portas; toda comunicação com eles passa obrigatoriamente pela API. A porta da
+> API no host é **8001** por padrão (mapeada para a 8000 do container); para
+> trocar, defina `API_PORT` no `.env` ou no ambiente.
+>
+> Para inspecionar o banco/redis manualmente, use `docker compose exec db ...`
+> ou `docker compose exec redis redis-cli` (dentro da rede), não uma conexão
+> direta do host.
 
 Variáveis configuráveis (com valores padrão): `POSTGRES_USER`, `POSTGRES_PASSWORD`,
 `POSTGRES_DB`, `API_PORT`. Veja `.env.example`.
