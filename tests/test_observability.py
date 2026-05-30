@@ -47,6 +47,24 @@ def test_overlong_request_id_is_replaced() -> None:
     assert re.fullmatch(r"[0-9a-f]{32}", response.headers["X-Request-ID"]) is not None
 
 
+def test_client_ip_not_logged_when_disabled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = TestClient(
+        create_app(
+            Settings(
+                rate_limit_storage_uri="memory://",
+                trusted_hosts=["testserver"],
+                log_client_ip=False,
+            )
+        )
+    )
+    with caplog.at_level(logging.INFO, logger="classup.access"):
+        client.get("/api/v1/health")
+    access_lines = [r.getMessage() for r in caplog.records]
+    assert any("client=-" in line for line in access_lines)
+
+
 def test_rejection_is_logged_as_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

@@ -115,7 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
     app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.hsts_enabled)
-    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(RequestContextMiddleware, log_client_ip=settings.log_client_ip)
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
     return app
@@ -128,4 +128,8 @@ app = create_app()
 def root() -> dict[str, str]:
     """Rota raiz com informações básicas da API."""
     settings = get_settings()
-    return {"app": settings.app_name, "docs": "/docs"}
+    body = {"app": settings.app_name}
+    # Não anuncia /docs em produção (lá a documentação está desligada).
+    if not settings.is_production:
+        body["docs"] = "/docs"
+    return body

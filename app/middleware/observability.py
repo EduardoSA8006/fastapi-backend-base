@@ -23,8 +23,9 @@ class RequestContextMiddleware:
       detecção de abuso/ataque.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, log_client_ip: bool = True) -> None:
         self.app = app
+        self.log_client_ip = log_client_ip
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -42,8 +43,12 @@ class RequestContextMiddleware:
                 break
         request_id = incoming or uuid4().hex
 
-        client = scope.get("client")
-        client_host = client[0] if client else "-"
+        # IP é dado pessoal (LGPD/GDPR): só registra se habilitado.
+        if self.log_client_ip:
+            client = scope.get("client")
+            client_host = client[0] if client else "-"
+        else:
+            client_host = "-"
         method = scope.get("method", "-")
         path = scope.get("path", "-")
         status_code = 0

@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # nginx = 2. Só tem efeito com trust_proxy=true.
     num_trusted_proxies: int = 1
 
+    # Observabilidade / privacidade: o IP do cliente é dado pessoal (LGPD/GDPR).
+    # Permite desligar o registro do IP nos logs de acesso.
+    log_client_ip: bool = True
+
     @property
     def is_production(self) -> bool:
         """Indica se a aplicação roda em ambiente de produção."""

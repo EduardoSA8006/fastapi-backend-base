@@ -165,6 +165,23 @@ Portanto, o limite **precisa existir também na borda**:
   correto de saltos é responsabilidade do operador. Configure com cuidado.
 - **`Cache-Control: no-store`** deve ser aplicado nos endpoints sensíveis quando
   existirem (dados de usuário, tokens), evitando cache por intermediários.
+- **Privacidade dos logs (LGPD/GDPR)**: o log de acesso registra o IP do cliente
+  (dado pessoal). Defina **retenção** e **base legal** para esses logs; use
+  `LOG_CLIENT_IP=false` para não registrar o IP. O caminho logado **não inclui
+  query string**, mas evite **tokens em path** (ex.: `/reset/<token>`) — eles
+  apareceriam no log; prefira tokens no corpo/header.
+- **Validação de env (typos)**: `Settings` usa `extra="ignore"` porque o `.env` é
+  **compartilhado** com o docker-compose/entrypoint (`POSTGRES_*`,
+  `REDIS_PASSWORD`, `RUN_MIGRATIONS_ON_START`), e `extra="forbid"` quebraria
+  `cp .env.example .env && uvicorn`. Mitigação: as settings críticas têm guards
+  de produção ou caem em defaults **seguros** (ex.: `CORS_ALLOW_ORIGINS` errado →
+  `[]` bloqueia tudo). Para adotar `extra="forbid"` (falhar em typos), separe o
+  `.env` da app das variáveis de infraestrutura.
+- **Swagger UI via CDN (apenas dev/staging)**: quando os docs estão ligados, o
+  Swagger carrega assets de CDN (e a CSP é isenta nesses paths) — se o CDN for
+  comprometido, há risco de XSS na página de docs. Em **produção os docs estão
+  desligados**, então não há exposição; em dev/staging, considere servir os
+  assets localmente ou aplicar SRI se quiser fechar isso.
 - **Credenciais**: em produção a aplicação recusa o boot com senha de banco
   default/fraca; o Redis sobe com `--requirepass`. Use segredos fortes
   (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`) — nunca os defaults de desenvolvimento.
