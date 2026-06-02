@@ -159,9 +159,19 @@ um endpoint que não lê o corpo (ex.: `/health`) nunca dispararia a contagem.
 O que **continua sendo responsabilidade da borda/uvicorn** (fora do escopo de um
 limite de tamanho):
 
-- **Slowloris** (corpo enviado byte a byte, lentamente): exige timeouts.
-  uvicorn: `--timeout-keep-alive`; nginx/traefik/ALB: timeouts de leitura e
-  limites de conexão.
+- **Slowloris / slow-POST** (corpo ou headers enviados byte a byte): **o uvicorn
+  NÃO cobre** este caso. `--timeout-keep-alive` só fecha conexões keep-alive
+  **ociosas** — uma conexão que envia 1 byte a cada poucos segundos continua
+  "ativa". Com `--limit-concurrency 100`, ~100 conexões lentas esgotam a
+  capacidade sem nunca completar o corpo (logo, sem tocar o rate-limit). Mitigar
+  **exige reverse proxy** com timeouts de leitura: nginx `client_body_timeout` /
+  `client_header_timeout` / `send_timeout` (ou equivalentes em ALB/Cloudflare).
+  **É requisito de produção.**
+- **Acesso direto à app (bypass do proxy)**: não publique a porta da app em todas
+  as interfaces. Com `TRUST_PROXY=true`, alcançar a app direto (`:8001`) permite
+  forjar `X-Forwarded-For` e furar o rate-limit por IP. O `docker-compose` faz
+  bind em **loopback** por padrão (`API_BIND=127.0.0.1`); em produção, prefira
+  não publicar a porta e expor só o proxy (app na rede interna via hostname `api`).
 - **Redundância em profundidade**: mantenha também `client_max_body_size 1m;`
   (nginx) ou equivalente, além de `--limit-concurrency` no uvicorn.
 - **Rejeições antes do rate-limit**: por design, validações baratas (Host

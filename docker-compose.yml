@@ -62,8 +62,15 @@ services:
       # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),
       # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.classup.com.
       HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-127.0.0.1}
+    # Bind em loopback por padrão (secure-by-default): a porta da app NÃO fica
+    # exposta em todas as interfaces. Isso evita que um atacante alcance a app
+    # contornando o proxy reverso — crítico com TRUST_PROXY=true, onde um acesso
+    # direto com X-Forwarded-For forjado furaria o rate-limit por IP.
+    # Em produção, o ideal é NÃO publicar a porta: ponha API e proxy na mesma
+    # rede interna e exponha só o proxy (a app é alcançável via hostname `api`).
+    # Para expor na LAN em dev, defina API_BIND=0.0.0.0 conscientemente.
     ports:
-      - "${API_PORT:-8001}:8000"
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8001}:8000"
     # Endurecimento do container (anti-DoS / contenção):
     read_only: true            # rootfs somente leitura
     tmpfs:
