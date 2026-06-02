@@ -138,15 +138,20 @@ A aplicação não termina TLS. No deploy de produção:
 
 ### Defesa em profundidade no proxy/borda
 
-O limite de tamanho de corpo da aplicação é, por natureza, **tardio**: a contagem
-real de bytes só dispara quando o handler **consome** o corpo. Uma requisição
-`Transfer-Encoding: chunked` para um endpoint que não lê o corpo não é contada
-pela app (o fast-path por `Content-Length` cobre apenas o caso declarado).
-Portanto, o limite **precisa existir também na borda**:
+O limite de **tamanho** de corpo é autoritativo na própria aplicação,
+independentemente de o handler consumir o corpo: com `Content-Length` há um
+fast-path pelo header; sem ele (`Transfer-Encoding: chunked`) o corpo é drenado
+proativamente até o limite antes de chegar ao handler — fechando o bypass em que
+um endpoint que não lê o corpo (ex.: `/health`) nunca dispararia a contagem.
 
-- nginx: `client_max_body_size 1m;` · traefik/ALB: limite equivalente.
-- Timeouts e limites de conexão no proxy (anti slowloris), além dos do uvicorn
-  (`--limit-concurrency`, `--timeout-keep-alive`).
+O que **continua sendo responsabilidade da borda/uvicorn** (fora do escopo de um
+limite de tamanho):
+
+- **Slowloris** (corpo enviado byte a byte, lentamente): exige timeouts.
+  uvicorn: `--timeout-keep-alive`; nginx/traefik/ALB: timeouts de leitura e
+  limites de conexão.
+- **Redundância em profundidade**: mantenha também `client_max_body_size 1m;`
+  (nginx) ou equivalente, além de `--limit-concurrency` no uvicorn.
 
 ### Riscos residuais e roadmap de segurança
 

@@ -51,6 +51,19 @@ def test_body_size_limit_rejects_large_payload() -> None:
     assert response.status_code == 413
 
 
+def test_body_size_limit_rejects_chunked_payload_on_unread_endpoint() -> None:
+    # Cenário do bypass: corpo chunked (sem Content-Length) para /health, que
+    # não consome o corpo. Sem o eager-drain isso passaria pela app.
+    from collections.abc import Iterator
+
+    def gen() -> Iterator[bytes]:
+        yield b"x" * 50
+
+    client = _client(max_body_size=10)
+    response = client.post("/api/v1/health", content=gen())
+    assert response.status_code == 413
+
+
 def test_trusted_host_rejects_unknown_host() -> None:
     client = _client(trusted_hosts=["example.com"])
     response = client.get("/api/v1/health")

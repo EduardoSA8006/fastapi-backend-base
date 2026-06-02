@@ -1,3 +1,5 @@
+from collections import deque
+
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -10,9 +12,18 @@ class _ContentTooLarge(Exception):
 class BodySizeLimitMiddleware:
     """Rejeita requisições cujo corpo excede max_body_size (bytes).
 
-    Verifica o header Content-Length como fast-path e, de forma autoritativa,
-    conta os bytes reais do stream — fechando o bypass via chunked/sem
-    Content-Length. O corpo com tamanho exatamente igual ao limite é aceito.
+    O controle é autoritativo e independe de o handler consumir o corpo:
+
+    - Com `Content-Length`: fast-path — rejeita já pelo header declarado.
+    - Sem `Content-Length` (ex.: `Transfer-Encoding: chunked`): o corpo é
+      drenado proativamente ANTES de invocar a aplicação, cortando no limite.
+      Isso fecha o bypass em que um endpoint que não lê o corpo (ex.: /health)
+      nunca dispararia a contagem. Como o corte é exatamente no limite, nunca
+      bufferizamos um stream gigante/infinito — não reintroduz o DoS.
+
+    O corpo com tamanho exatamente igual ao limite é aceito. Slowloris (corpo
+    enviado lentamente) continua sendo responsabilidade de timeouts na borda /
+    no uvicorn — está fora do escopo de um limite de *tamanho*.
     """
 
     def __init__(self, app: ASGIApp, max_body_size: int) -> None:
@@ -33,12 +44,25 @@ class BodySizeLimitMiddleware:
                 await self._reject(scope, receive, send, 400, "Invalid Content-Length")
                 return
             if int(content_length) > self.max_body_size:
-                # Não drenamos o corpo: drenar leria os bytes que este controle
-                # existe justamente para recusar (reintroduzindo o DoS). O
-                # servidor encerra a conexão após o 413.
+                # Não drenamos: o tamanho já é conhecido e excede o limite —
+                # ler os bytes reintroduziria o DoS. O servidor encerra a
+                # conexão após o 413.
                 await self._reject(scope, receive, send, 413, "Request body too large")
                 return
+            # Content-Length válido e dentro do limite: o tamanho já está
+            # delimitado pelo header. Conta de forma lazy (defesa extra caso os
+            # bytes reais excedam o Content-Length declarado).
+            await self._serve_with_lazy_count(scope, receive, send)
+            return
 
+        # Sem Content-Length: a contagem lazy não bastaria, pois um handler que
+        # não lê o corpo nunca chamaria receive(). Drena proativamente.
+        await self._serve_with_eager_drain(scope, receive, send)
+
+    async def _serve_with_lazy_count(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Conta bytes conforme a aplicação os lê (caso Content-Length presente)."""
         total = 0
         response_started = False
 
@@ -69,6 +93,40 @@ class BodySizeLimitMiddleware:
                 )
                 return
             await self._reject(scope, receive, send, 413, "Request body too large")
+
+    async def _serve_with_eager_drain(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Drena o corpo até o limite antes de invocar a app, então faz replay.
+
+        Cobre o caso sem Content-Length (chunked) de forma autoritativa,
+        inclusive para endpoints que não consomem o corpo.
+        """
+        buffered: deque[Message] = deque()
+        total = 0
+        more_body = True
+
+        while more_body:
+            message = await receive()
+            if message["type"] != "http.request":
+                # http.disconnect (ou outro evento): repassa e encerra o pré-leitura.
+                buffered.append(message)
+                break
+            total += len(message.get("body", b""))
+            if total > self.max_body_size:
+                await self._reject(scope, receive, send, 413, "Request body too large")
+                return
+            buffered.append(message)
+            more_body = message.get("more_body", False)
+
+        async def replay_receive() -> Message:
+            # Reentrega os chunks já lidos; depois delega ao receive real
+            # (ex.: para futuros http.disconnect).
+            if buffered:
+                return buffered.popleft()
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
 
     @staticmethod
     async def _reject(
