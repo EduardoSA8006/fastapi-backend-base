@@ -55,6 +55,11 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Comentar no PR usa a API do GitHub (escrita) e exige pull-requests:write;
+          # com o token em contents:read isso falha com "Resource not accessible by
+          # integration". O scan em si não precisa do token — desligamos o comentário
+          # (mantendo o menor privilégio). O resultado segue no job summary e no log.
+          GITLEAKS_ENABLE_COMMENTS: false
 
       - name: Build da imagem
         run: docker build -t classup-backend:ci .

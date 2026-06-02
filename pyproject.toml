@@ -18,6 +18,12 @@ dependencies = [
 ]
 
 
+[tool.poetry]
+# A app roda via uvicorn (app/), não é um pacote distribuível. Sem isto, o
+# Poetry 2.x tenta instalar o pacote-raiz "classup-backend" (inexistente) e o
+# `poetry install` falha — desnecessário usar --no-root em todo lugar.
+package-mode = false
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
