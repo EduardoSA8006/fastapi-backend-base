@@ -29,11 +29,28 @@ def build_key_func(settings: Settings) -> Callable[[Request], str]:
 
 
 def create_limiter(settings: Settings) -> Limiter:
-    """Instancia o Limiter do slowapi a partir das configurações."""
+    """Instancia o Limiter do slowapi a partir das configurações.
+
+    Comportamento com store indisponível é FAIL-CLOSED por design (default do
+    slowapi: swallow_errors=False, sem in_memory_fallback). Se o Redis cair, as
+    requisições rate-limitadas viram 500 — a API não fica desprotegida, mas sua
+    disponibilidade fica acoplada à do Redis. Os timeouts curtos de socket
+    (só no Redis) evitam que um Redis lento bloqueie a requisição: o erro estoura
+    rápido em vez de pendurar a conexão.
+    """
+    # socket_timeout só se aplica ao backend Redis; passá-lo ao MemoryStorage
+    # (memory://, usado em dev/testes) levantaria erro.
+    storage_options: dict[str, int] = {}
+    if settings.rate_limit_storage_uri.startswith("redis"):
+        storage_options = {"socket_timeout": 2, "socket_connect_timeout": 2}
+
     return Limiter(
         key_func=build_key_func(settings),
         default_limits=[settings.rate_limit_default],
         storage_uri=settings.rate_limit_storage_uri,
+        # slowapi tipa storage_options como dict[str, str], mas o backend Redis
+        # exige socket_timeout numérico (socket.settimeout); o stub é restritivo.
+        storage_options=storage_options,  # type: ignore[arg-type]
         enabled=settings.rate_limit_enabled,
         headers_enabled=True,
     )

@@ -188,12 +188,18 @@ limite de tamanho):
   sob **rotação de IP / botnet** e penaliza usuários atrás de **NAT compartilhado**
   (mesmo IP). Quando houver autenticação, adicionar limite **por conta** e
   **backoff exponencial** em falhas de login (anti credential-stuffing).
-- **Rate-limit fail-open**: se o Redis ficar indisponível, o `slowapi`/`limits`
-  tende a **liberar** as requisições (fail-open) — derrubar o Redis equivale a
-  desligar o rate-limit. **Monitore** a disponibilidade do store. O fail-closed
-  **não** é global de propósito (um hiccup do Redis derrubaria até `/health`); o
-  lugar dele é **seletivo**, introduzido junto com o login e demais endpoints
-  sensíveis (negar quando o store não responde apenas onde o risco justifica).
+- **Rate-limit fail-closed quando o Redis cai** (escolha consciente): com o
+  default do slowapi (`swallow_errors=False`, sem `in_memory_fallback`), um Redis
+  indisponível faz as requisições rate-limitadas retornarem **500** — a API não
+  fica desprotegida, mas sua **disponibilidade fica acoplada à do Redis**.
+  Timeouts curtos de socket (`socket_timeout`/`socket_connect_timeout=2s`, só no
+  Redis) evitam que um Redis lento pendure as requisições. Implicações operacionais:
+  **monitore/alarme** a disponibilidade do Redis; como o `/health` também é
+  rate-limitado, um Redis fora derruba o healthcheck do container (restart loop)
+  — para evitar isso, isente o `/health` do rate-limit ou use um liveness probe
+  independente. Alternativas descartadas por ora: fail-open (`swallow_errors`,
+  perde proteção contra abuso) e fallback em memória (`in_memory_fallback`, limite
+  por-réplica).
 - **`NUM_TRUSTED_PROXIES` incorreto / `TRUST_PROXY` mal configurado**: se o valor
   for **maior** que o número real de proxies (ou `TRUST_PROXY=true` sem proxy
   reescrevendo o header), o IP extraído cai numa entrada **controlável pelo

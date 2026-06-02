@@ -39,6 +39,25 @@ def test_rate_limit_returns_429_when_exceeded() -> None:
     assert "retry_after" in last.json()
 
 
+def test_rate_limit_fail_closed_when_store_unavailable() -> None:
+    # Escolha consciente (F4): com o Redis indisponível, o rate-limit é
+    # fail-closed (500), não fail-open. Regressão contra mudança acidental de
+    # swallow_errors / in_memory_fallback. Porta 6399 não tem Redis -> connection
+    # refused (rápido); socket_connect_timeout=2 é apenas o teto.
+    client = TestClient(
+        create_app(
+            Settings(
+                rate_limit_enabled=True,
+                rate_limit_default="100/minute",
+                rate_limit_storage_uri="redis://127.0.0.1:6399/0",
+                trusted_hosts=["testserver"],
+            )
+        ),
+        raise_server_exceptions=False,
+    )
+    assert client.get("/api/v1/health").status_code == 500
+
+
 def test_rate_limit_disabled_allows_all() -> None:
     client = _client(rate_limit_enabled=False, rate_limit_default="1/minute")
     codes = [client.get("/api/v1/health").status_code for _ in range(5)]
