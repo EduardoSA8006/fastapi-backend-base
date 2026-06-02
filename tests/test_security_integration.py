@@ -70,6 +70,20 @@ def test_trusted_host_rejects_unknown_host() -> None:
     assert response.status_code == 400
 
 
+def test_healthcheck_host_must_be_trusted() -> None:
+    # Contrato do healthcheck (achado 7): com TRUSTED_HOSTS restrito, o probe
+    # precisa enviar HEALTHCHECK_HOST com um host permitido. Um host permitido
+    # passa; o loopback (fora da lista) é rejeitado — por isso HEALTHCHECK_HOST.
+    client = _client(trusted_hosts=["api.classup.com"])
+    assert (
+        client.get("/api/v1/health", headers={"host": "api.classup.com"}).status_code
+        == 200
+    )
+    assert (
+        client.get("/api/v1/health", headers={"host": "127.0.0.1"}).status_code == 400
+    )
+
+
 def test_cors_preflight_allows_configured_origin() -> None:
     client = _client(cors_allow_origins=["http://allowed.test"])
     response = client.options(

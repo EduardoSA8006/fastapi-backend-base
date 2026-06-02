@@ -29,11 +29,13 @@ USER app
 
 EXPOSE 8000
 
-# Healthcheck da própria API. Obs.: em produção com TRUSTED_HOSTS restrito, o
-# host do probe (127.0.0.1) precisa estar permitido, ou use o probe do
-# orquestrador com o Host correto.
+# Healthcheck da própria API. O probe envia um header Host configurável via
+# HEALTHCHECK_HOST (default 127.0.0.1, que funciona em dev com TRUSTED_HOSTS=["*"]).
+# Em produção com TRUSTED_HOSTS restrito, defina HEALTHCHECK_HOST com um host
+# permitido (ex.: api.classup.com), senão o TrustedHostMiddleware responde 400 e
+# o healthcheck falha. Não afrouxamos o TrustedHost para o loopback de propósito.
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=2).status==200 else 1)"
+  CMD python -c "import os,urllib.request,sys; h=os.getenv('HEALTHCHECK_HOST','127.0.0.1'); req=urllib.request.Request('http://127.0.0.1:8000/api/v1/health',headers={'Host':h}); sys.exit(0 if urllib.request.urlopen(req,timeout=2).status==200 else 1)"
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 # --no-server-header reduz fingerprint; --limit-concurrency e --timeout-keep-alive

@@ -59,6 +59,9 @@ services:
       POSTGRES_PORT: "5432"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
       RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-classup}@redis:6379/0
+      # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),
+      # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.classup.com.
+      HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-127.0.0.1}
     ports:
       - "${API_PORT:-8001}:8000"
     # Endurecimento do container (anti-DoS / contenção):

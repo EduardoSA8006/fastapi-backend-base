@@ -132,6 +132,12 @@ Além disso, `/docs`, `/redoc` e `/openapi.json` ficam **desligados** em produç
 `RUN_MIGRATIONS_ON_START=false` e rode `alembic upgrade head` como etapa separada
 de deploy (evita corrida entre containers).
 
+> **Healthcheck do container**: o probe do Docker envia `Host: 127.0.0.1` por
+> padrão, que o `TrustedHostMiddleware` rejeitaria sob `TRUSTED_HOSTS` restrito
+> (→ 400 → restart loop). Defina `HEALTHCHECK_HOST` com um host permitido (ex.:
+> `HEALTHCHECK_HOST=api.classup.com`). Não afrouxamos o `TrustedHost` para o
+> loopback de propósito — o probe carrega o `Host` correto.
+
 ### TLS
 
 A aplicação não termina TLS. No deploy de produção:
@@ -158,6 +164,13 @@ limite de tamanho):
   limites de conexão.
 - **Redundância em profundidade**: mantenha também `client_max_body_size 1m;`
   (nginx) ou equivalente, além de `--limit-concurrency` no uvicorn.
+- **Rejeições antes do rate-limit**: por design, validações baratas (Host
+  inválido → 400, corpo grande → 413) ficam **fora** do rate-limit (mais
+  interno), para não gastar uma operação no Redis com tráfego lixo — caso
+  contrário um flood de requisições inválidas viraria DoS contra o próprio
+  Redis. O custo é que esse caminho de rejeição não é limitado por IP; como cada
+  rejeição é O(1) (sem DB/Redis), a barreira correta é o **limite de conexão/taxa
+  na borda/uvicorn** (`--limit-concurrency`), não o rate-limit de aplicação.
 
 ### Riscos residuais e roadmap de segurança
 
