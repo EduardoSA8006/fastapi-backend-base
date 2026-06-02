@@ -46,6 +46,12 @@ jobs:
   # acima; aqui ficam o secret scanning e o scan da imagem Docker.
   security:
     runs-on: ubuntu-latest
+    # Em pull_request, o gitleaks lê os commits do PR (GET .../pulls/{n}/commits)
+    # para definir o range do scan — isso exige pull-requests:read (o default
+    # contents:read não basta). Mantém-se read-only: nada de escrita.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
