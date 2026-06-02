@@ -65,6 +65,35 @@ def test_client_ip_not_logged_when_disabled(
     assert any("client=-" in line for line in access_lines)
 
 
+def test_client_ip_logged_from_xff_when_trust_proxy(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Atrás de proxy confiável, o log usa o IP real do X-Forwarded-For (mesma
+    # derivação do rate-limit), não o IP da conexão.
+    client = TestClient(
+        create_app(
+            Settings(
+                rate_limit_storage_uri="memory://",
+                trusted_hosts=["testserver"],
+                trust_proxy=True,
+                num_trusted_proxies=1,
+            )
+        )
+    )
+    with caplog.at_level(logging.INFO, logger="classup.access"):
+        client.get("/api/v1/health", headers={"X-Forwarded-For": "9.9.9.9"})
+    assert any("client=9.9.9.9" in r.getMessage() for r in caplog.records)
+
+
+def test_client_ip_ignores_xff_when_proxy_untrusted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Sem trust_proxy, um X-Forwarded-For forjado não deve aparecer no log.
+    with caplog.at_level(logging.INFO, logger="classup.access"):
+        _client().get("/api/v1/health", headers={"X-Forwarded-For": "9.9.9.9"})
+    assert not any("client=9.9.9.9" in r.getMessage() for r in caplog.records)
+
+
 def test_rejection_is_logged_as_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

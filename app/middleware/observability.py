@@ -5,6 +5,8 @@ from uuid import uuid4
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.client_ip import resolve_client_ip
+
 logger = logging.getLogger("classup.access")
 
 # X-Request-ID aceito do cliente: apenas caracteres seguros e tamanho limitado.
@@ -23,9 +25,17 @@ class RequestContextMiddleware:
       detecção de abuso/ataque.
     """
 
-    def __init__(self, app: ASGIApp, log_client_ip: bool = True) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        log_client_ip: bool = True,
+        trust_proxy: bool = False,
+        num_trusted_proxies: int = 1,
+    ) -> None:
         self.app = app
         self.log_client_ip = log_client_ip
+        self.trust_proxy = trust_proxy
+        self.num_trusted_proxies = num_trusted_proxies
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -46,7 +56,18 @@ class RequestContextMiddleware:
         # IP é dado pessoal (LGPD/GDPR): só registra se habilitado.
         if self.log_client_ip:
             client = scope.get("client")
-            client_host = client[0] if client else "-"
+            connection_ip = client[0] if client else "-"
+            # Atrás de proxy confiável, loga o IP real (mesma derivação do
+            # rate-limit) para que log e limite concordem sobre o cliente.
+            forwarded = None
+            if self.trust_proxy:
+                for name, value in scope.get("headers", []):
+                    if name == b"x-forwarded-for":
+                        forwarded = value.decode("latin-1")
+                        break
+            client_host = resolve_client_ip(
+                forwarded, connection_ip, self.trust_proxy, self.num_trusted_proxies
+            )
         else:
             client_host = "-"
         method = scope.get("method", "-")

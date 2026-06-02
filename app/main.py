@@ -145,7 +145,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
     app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.hsts_enabled)
-    app.add_middleware(RequestContextMiddleware, log_client_ip=settings.log_client_ip)
+    app.add_middleware(
+        RequestContextMiddleware,
+        log_client_ip=settings.log_client_ip,
+        trust_proxy=settings.trust_proxy,
+        num_trusted_proxies=settings.num_trusted_proxies,
+    )
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
     return app
