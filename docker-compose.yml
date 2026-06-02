@@ -57,6 +57,14 @@ services:
       RUN_MIGRATIONS_ON_START: ${RUN_MIGRATIONS_ON_START:-true}
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+      # H3: senhas embutidas em env são visíveis via `docker inspect` e em
+      # /proc/<pid>/environ — aceitável neste stack de dev. Em PRODUÇÃO, prefira
+      # Docker/Swarm secrets (arquivos em /run/secrets) ou um secrets manager;
+      # o pydantic-settings lê de arquivos via `secrets_dir` (ex.: /run/secrets),
+      # evitando expor a credencial no ambiente do processo.
+      # H6: redis:// é texto puro — ok na rede interna do mesmo host. Se o Redis
+      # cruzar a fronteira de host (gerenciado/outro nó), troque para rediss://
+      # (TLS); o guard de senha do main.py já cobre rediss://.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
       RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-classup}@redis:6379/0
       # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),

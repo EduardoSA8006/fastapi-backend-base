@@ -241,6 +241,25 @@ limite de tamanho):
   comprometido, há risco de XSS na página de docs. Em **produção os docs estão
   desligados**, então não há exposição; em dev/staging, considere servir os
   assets localmente ou aplicar SRI se quiser fechar isso.
+- **Segredos via variável de ambiente**: as senhas chegam ao container por env
+  (`DATABASE_URL`/`RATE_LIMIT_STORAGE_URI`), visíveis em `docker inspect` e
+  `/proc/<pid>/environ`. Aceitável no stack de dev. Em **produção**, prefira
+  Docker/Swarm secrets ou um secrets manager montando a senha por **arquivo** —
+  o `pydantic-settings` lê de `secrets_dir` (ex.: `/run/secrets`), evitando
+  expor a credencial no ambiente do processo.
+- **Imagem base fixada por tag, não por digest**: o `Dockerfile` usa
+  `python:3.13-slim` (tag mutável). O CI fixa Actions por SHA; faça o mesmo com a
+  base do Docker — fixe por `@sha256:<digest>` e atualize via Renovate/Dependabot
+  (o procedimento para obter o digest está comentado no `Dockerfile`).
+- **`--forwarded-allow-ips` do uvicorn**: deve permanecer no **default restrito**
+  (`127.0.0.1`). A fonte da verdade do IP do cliente é o `resolve_client_ip` da
+  app (`TRUST_PROXY`/`NUM_TRUSTED_PROXIES`). Habilitar `--forwarded-allow-ips="*"`
+  faz o uvicorn reescrever `scope["client"]` com a própria lógica (mais ingênua)
+  de XFF, criando um caminho de confiança paralelo e conflitante.
+- **Redis em texto puro (`redis://`)**: ok enquanto Redis e API compartilham a
+  rede interna do mesmo host. Se o Redis cruzar a fronteira de host (gerenciado,
+  outro nó), troque para **`rediss://`** (TLS); o guard de senha de produção já
+  cobre `rediss://`.
 - **Credenciais**: em produção a aplicação recusa o boot com senha de banco
   default/fraca; o Redis sobe com `--requirepass`. Use segredos fortes
   (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`) — nunca os defaults de desenvolvimento.
