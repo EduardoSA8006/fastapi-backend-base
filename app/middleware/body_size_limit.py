@@ -24,6 +24,14 @@ class BodySizeLimitMiddleware:
     O corpo com tamanho exatamente igual ao limite é aceito. Slowloris (corpo
     enviado lentamente) continua sendo responsabilidade de timeouts na borda /
     no uvicorn — está fora do escopo de um limite de *tamanho*.
+
+    INVARIANTE DE MEMÓRIA: no caminho sem Content-Length, o corpo é bufferizado
+    em memória (até max_body_size) antes de ser reentregue à app. O pico de uso
+    é, portanto, ~max_body_size x requisições chunked concorrentes. Mantenha
+    `MAX_BODY_SIZE x --limit-concurrency` confortavelmente abaixo do `mem_limit`
+    do container (defaults: 1 MB x 100 = ~100 MB < 512m). Se uploads grandes
+    virarem requisito, prefira streaming direto ao storage em vez de elevar
+    MAX_BODY_SIZE (que multiplica esse pico).
     """
 
     def __init__(self, app: ASGIApp, max_body_size: int) -> None:

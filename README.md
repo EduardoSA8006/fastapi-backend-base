@@ -156,6 +156,14 @@ fast-path pelo header; sem ele (`Transfer-Encoding: chunked`) o corpo é drenado
 proativamente até o limite antes de chegar ao handler — fechando o bypass em que
 um endpoint que não lê o corpo (ex.: `/health`) nunca dispararia a contagem.
 
+> **Invariante de memória**: o caminho chunked bufferiza o corpo em memória (até
+> `MAX_BODY_SIZE`) antes de reentregá-lo ao handler. O pico é ~`MAX_BODY_SIZE` ×
+> requisições chunked concorrentes — um atacante pode forçá-lo deliberadamente.
+> Mantenha **`MAX_BODY_SIZE × --limit-concurrency` confortavelmente abaixo do
+> `mem_limit`** do container (defaults: 1 MB × 100 = ~100 MB < 512m), senão
+> elevar `MAX_BODY_SIZE` (ex.: para uploads) leva a **OOM kill**. Para uploads
+> grandes, prefira **streaming direto ao storage**, não bufferização no middleware.
+
 O que **continua sendo responsabilidade da borda/uvicorn** (fora do escopo de um
 limite de tamanho):
 
