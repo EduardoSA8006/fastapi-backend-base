@@ -28,7 +28,14 @@ poetry run uvicorn app.main:app --reload
 A API ficará disponível em `http://127.0.0.1:8000`.
 
 - Documentação interativa (Swagger): `http://127.0.0.1:8000/docs`
-- Healthcheck: `http://127.0.0.1:8000/api/v1/health`
+- Liveness (raso, não toca dependências): `http://127.0.0.1:8000/api/v1/health`
+- Readiness (checa banco + Redis; 503 se algo está fora): `http://127.0.0.1:8000/api/v1/ready`
+
+> **Liveness × readiness**: use `/health` para o orquestrador decidir
+> **reiniciar** um processo travado (não depende de banco/Redis) e `/ready` para
+> tirar a réplica do balanceador quando uma **dependência está fora** (sem
+> reiniciar). Ambos são **isentos do rate-limit** (não consomem cota e funcionam
+> com o store fora).
 
 ## Executando com Docker (API + PostgreSQL)
 
@@ -202,12 +209,11 @@ limite de tamanho):
   fica desprotegida, mas sua **disponibilidade fica acoplada à do Redis**.
   Timeouts curtos de socket (`socket_timeout`/`socket_connect_timeout=2s`, só no
   Redis) evitam que um Redis lento pendure as requisições. Implicações operacionais:
-  **monitore/alarme** a disponibilidade do Redis; como o `/health` também é
-  rate-limitado, um Redis fora derruba o healthcheck do container (restart loop)
-  — para evitar isso, isente o `/health` do rate-limit ou use um liveness probe
-  independente. Alternativas descartadas por ora: fail-open (`swallow_errors`,
-  perde proteção contra abuso) e fallback em memória (`in_memory_fallback`, limite
-  por-réplica).
+  **monitore/alarme** a disponibilidade do Redis. Os **probes (`/health` e
+  `/ready`) são isentos do rate-limit**, então um Redis fora **não** derruba o
+  liveness (sem restart loop) — é o `/ready` que sinaliza o store degradado.
+  Alternativas descartadas por ora: fail-open (`swallow_errors`, perde proteção
+  contra abuso) e fallback em memória (`in_memory_fallback`, limite por-réplica).
 - **`NUM_TRUSTED_PROXIES` incorreto / `TRUST_PROXY` mal configurado**: se o valor
   for **maior** que o número real de proxies (ou `TRUST_PROXY=true` sem proxy
   reescrevendo o header), o IP extraído cai numa entrada **controlável pelo

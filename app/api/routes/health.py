@@ -1,9 +1,70 @@
+import redis
 from fastapi import APIRouter
+from sqlalchemy import text
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from app.core.config import Settings, get_settings
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
 def health_check() -> dict[str, str]:
-    """Verifica se a aplicação está no ar."""
+    """Liveness: indica apenas que o processo está no ar.
+
+    Propositalmente RASO — não toca dependências. Serve para o orquestrador
+    decidir se reinicia o container (um processo travado). Para saber se a app
+    consegue atender (banco/Redis de pé), use /ready.
+    """
     return {"status": "ok"}
+
+
+@router.get("/ready")
+def readiness(request: Request) -> JSONResponse:
+    """Readiness: verifica as dependências externas (banco e, se aplicável, Redis).
+
+    Retorna 200 só quando todas respondem; caso contrário 503, para o
+    orquestrador tirar a réplica do balanceador sem reiniciá-la (diferente do
+    liveness). Cada checagem tem timeout curto para não pendurar o probe.
+    """
+    # Settings deste app (respeita override de testes); fallback ao global.
+    settings: Settings = getattr(request.app.state, "settings", None) or get_settings()
+    checks: dict[str, str] = {}
+    ready = True
+
+    # Banco: um SELECT 1 confirma conectividade e que o pool responde.
+    try:
+        engine = request.app.state.db_engine
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception:
+        checks["database"] = "error"
+        ready = False
+
+    # Redis: só quando é o store do rate-limit (memory:// não tem o que checar).
+    if settings.rate_limit_enabled and settings.rate_limit_storage_uri.startswith(
+        "redis"
+    ):
+        client = None
+        try:
+            client = redis.from_url(
+                settings.rate_limit_storage_uri,
+                socket_connect_timeout=2,
+                socket_timeout=2,
+            )
+            client.ping()
+            checks["redis"] = "ok"
+        except Exception:
+            checks["redis"] = "error"
+            ready = False
+        finally:
+            if client is not None:
+                client.close()
+
+    status_code = 200 if ready else 503
+    return JSONResponse(
+        {"status": "ready" if ready else "not ready", "checks": checks},
+        status_code=status_code,
+    )

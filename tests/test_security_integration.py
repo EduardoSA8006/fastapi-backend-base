@@ -17,6 +17,27 @@ def _client(**overrides: Any) -> TestClient:
     return TestClient(create_app(Settings(**base)))
 
 
+def _rl_client(*, raise_server_exceptions: bool = True, **overrides: Any) -> TestClient:
+    """Cliente com uma rota neutra `/_rl` NÃO isenta do rate-limit.
+
+    Os probes (/health, /ready) são isentos e a rota "/" só existe no `app` de
+    módulo (não em apps de create_app), então os testes de rate-limit precisam
+    de um endpoint próprio para exercitar o limite.
+    """
+    base: dict[str, Any] = {
+        "rate_limit_storage_uri": "memory://",
+        "trusted_hosts": ["testserver"],
+    }
+    base.update(overrides)
+    app = create_app(Settings(**base))
+
+    @app.get("/_rl")
+    def _rl() -> dict[str, bool]:
+        return {"ok": True}
+
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
+
+
 def test_security_headers_on_real_app() -> None:
     client = _client()
     response = client.get("/api/v1/health")
@@ -29,11 +50,11 @@ def test_security_headers_on_real_app() -> None:
 
 
 def test_rate_limit_returns_429_when_exceeded() -> None:
-    client = _client(rate_limit_default="3/minute")
-    codes = [client.get("/api/v1/health").status_code for _ in range(4)]
+    client = _rl_client(rate_limit_default="3/minute")
+    codes = [client.get("/_rl").status_code for _ in range(4)]
     assert codes[:3] == [200, 200, 200]
     assert codes[3] == 429
-    last = client.get("/api/v1/health")
+    last = client.get("/_rl")
     assert last.status_code == 429
     assert last.json()["detail"] == "Rate limit exceeded"
     assert "retry_after" in last.json()
@@ -44,18 +65,14 @@ def test_rate_limit_fail_closed_when_store_unavailable() -> None:
     # fail-closed (500), não fail-open. Regressão contra mudança acidental de
     # swallow_errors / in_memory_fallback. Porta 6399 não tem Redis -> connection
     # refused (rápido); socket_connect_timeout=2 é apenas o teto.
-    client = TestClient(
-        create_app(
-            Settings(
-                rate_limit_enabled=True,
-                rate_limit_default="100/minute",
-                rate_limit_storage_uri="redis://127.0.0.1:6399/0",
-                trusted_hosts=["testserver"],
-            )
-        ),
+    client = _rl_client(
         raise_server_exceptions=False,
+        rate_limit_enabled=True,
+        rate_limit_default="100/minute",
+        rate_limit_storage_uri="redis://127.0.0.1:6399/0",
     )
-    assert client.get("/api/v1/health").status_code == 500
+    # /_rl não é isento do rate-limit (os probes são) — exercita o fail-closed.
+    assert client.get("/_rl").status_code == 500
 
 
 def test_rate_limit_disabled_allows_all() -> None:
@@ -131,9 +148,10 @@ def test_security_headers_present_on_413() -> None:
 
 
 def test_security_headers_present_on_429() -> None:
-    client = _client(rate_limit_default="1/minute")
-    client.get("/api/v1/health")
-    response = client.get("/api/v1/health")
+    # /_rl (não isento) para forçar o 429; os probes não passam pelo rate-limit.
+    client = _rl_client(rate_limit_default="1/minute")
+    client.get("/_rl")
+    response = client.get("/_rl")
     assert response.status_code == 429
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
 
@@ -166,10 +184,10 @@ def test_spoofed_xff_ignored_when_proxy_untrusted() -> None:
     # Com trust_proxy=False (padrão), X-Forwarded-For forjado é ignorado:
     # todas as requisições compartilham o bucket do IP da conexão, então o
     # rate-limit dispara mesmo variando o cabeçalho — não dá para burlar.
-    client = _client(rate_limit_default="2/minute", trust_proxy=False)
-    r1 = client.get("/api/v1/health", headers={"X-Forwarded-For": "1.1.1.1"})
-    r2 = client.get("/api/v1/health", headers={"X-Forwarded-For": "2.2.2.2"})
-    r3 = client.get("/api/v1/health", headers={"X-Forwarded-For": "3.3.3.3"})
+    client = _rl_client(rate_limit_default="2/minute", trust_proxy=False)
+    r1 = client.get("/_rl", headers={"X-Forwarded-For": "1.1.1.1"})
+    r2 = client.get("/_rl", headers={"X-Forwarded-For": "2.2.2.2"})
+    r3 = client.get("/_rl", headers={"X-Forwarded-For": "3.3.3.3"})
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r3.status_code == 429

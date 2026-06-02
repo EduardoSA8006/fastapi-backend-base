@@ -9,6 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.router import api_router
+from app.api.routes import health
 from app.core.config import Settings, get_settings
 from app.core.database import build_engine, build_session_factory
 from app.core.limiter import create_limiter, rate_limit_exceeded_handler
@@ -113,6 +114,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json" if docs_enabled else None,
     )
 
+    # Settings deste app guardado no state, para que as rotas respeitem o
+    # override injetado (não o get_settings() global cacheado por lru_cache).
+    app.state.settings = settings
+
     # Engine/sessão do banco ligadas ao Settings deste app (respeita override).
     engine = build_engine(settings)
     app.state.db_engine = engine
@@ -123,6 +128,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         limiter = create_limiter(settings)
         app.state.limiter = limiter
         app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+        # Probes (liveness/readiness) NÃO passam pelo rate-limit: são chamados de
+        # forma recorrente (não devem gastar cota por IP) e, com o store fora, o
+        # limiter é fail-closed (500) — isso derrubaria o liveness e levaria o
+        # container a um restart-loop inútil (o Redis continua fora). O readiness,
+        # então, é quem reporta o store degradado. Registramos os nomes em
+        # _exempt_routes, o mesmo conjunto que o decorator público `limiter.exempt`
+        # manipula (indisponível aqui, pois o limiter é criado por-app).
+        for fn in (health.health_check, health.readiness):
+            limiter._exempt_routes.add(f"{fn.__module__}.{fn.__name__}")
 
     # A ORDEM importa: o último adicionado é o mais EXTERNO (executa primeiro na
     # entrada e por último na saída). RequestContext fica o mais externo (envolve
