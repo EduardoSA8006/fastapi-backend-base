@@ -1,6 +1,13 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Ambientes reconhecidos. Recusar valores desconhecidos é deliberado (fail-closed):
+# um typo plausível em deploy ("prod", "produção", "Production " com espaço) não
+# pode fazer a app subir silenciosamente em modo dev — o que desativaria os guards
+# de produção (Host, store do rate-limit, DEBUG, senha de banco) e exporia /docs.
+_VALID_ENVIRONMENTS = frozenset({"development", "staging", "production"})
 
 
 class Settings(BaseSettings):
@@ -53,10 +60,21 @@ class Settings(BaseSettings):
     # Permite desligar o registro do IP nos logs de acesso.
     log_client_ip: bool = True
 
+    @field_validator("environment")
+    @classmethod
+    def _validate_environment(cls, value: str) -> str:
+        """Normaliza e recusa ambientes desconhecidos (fail-closed)."""
+        normalized = value.strip().lower()
+        if normalized not in _VALID_ENVIRONMENTS:
+            valid = ", ".join(sorted(_VALID_ENVIRONMENTS))
+            raise ValueError(f"ENVIRONMENT inválido: {value!r}. Use um de: {valid}.")
+        return normalized
+
     @property
     def is_production(self) -> bool:
         """Indica se a aplicação roda em ambiente de produção."""
-        return self.environment.strip().lower() == "production"
+        # O validator já normalizou (strip+lower) e garantiu valor conhecido.
+        return self.environment == "production"
 
 
 @lru_cache

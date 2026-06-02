@@ -120,6 +120,12 @@ houver configuração insegura, forçando o operador a corrigir:
 - `RATE_LIMIT_STORAGE_URI` é `memory://` → erro (use `redis://...`; em múltiplos
   workers/réplicas o `memory://` torna o limite inefetivo).
 - `DEBUG=true` → erro (evita vazar stack traces).
+- Senha **fraca/default** (ou ausente) na `DATABASE_URL` → erro (use senha forte).
+- Senha **fraca/default** (ou ausente) na `RATE_LIMIT_STORAGE_URI` do Redis →
+  erro (paridade com o banco; use `redis://:SENHA@host:porta/db`).
+
+Avisos (não falham o boot, mas exigem atenção): `TRUST_PROXY=false` com proxy à
+frente (rate-limit colapsa) e `TRUST_PROXY=true` sem proxy real (XFF spoofável).
 
 Além disso, `/docs`, `/redoc` e `/openapi.json` ficam **desligados** em produção
 (não expõem a superfície da API). Para deploys com múltiplas réplicas, defina
@@ -161,13 +167,18 @@ limite de tamanho):
   **backoff exponencial** em falhas de login (anti credential-stuffing).
 - **Rate-limit fail-open**: se o Redis ficar indisponível, o `slowapi`/`limits`
   tende a **liberar** as requisições (fail-open) — derrubar o Redis equivale a
-  desligar o rate-limit. **Monitore** a disponibilidade do store; para endpoints
-  sensíveis (login, futuramente) avalie um comportamento **fail-closed**.
-- **`NUM_TRUSTED_PROXIES` incorreto**: se o valor for **maior** que o número real
-  de proxies (ou `TRUST_PROXY=true` sem proxy reescrevendo o header), o IP
-  extraído cai numa entrada **controlável pelo cliente** → spoofing e bypass do
-  rate-limit. O fallback do app só cobre o caso de entradas _de menos_; o número
-  correto de saltos é responsabilidade do operador. Configure com cuidado.
+  desligar o rate-limit. **Monitore** a disponibilidade do store. O fail-closed
+  **não** é global de propósito (um hiccup do Redis derrubaria até `/health`); o
+  lugar dele é **seletivo**, introduzido junto com o login e demais endpoints
+  sensíveis (negar quando o store não responde apenas onde o risco justifica).
+- **`NUM_TRUSTED_PROXIES` incorreto / `TRUST_PROXY` mal configurado**: se o valor
+  for **maior** que o número real de proxies (ou `TRUST_PROXY=true` sem proxy
+  reescrevendo o header), o IP extraído cai numa entrada **controlável pelo
+  cliente** → spoofing e bypass do rate-limit. O app **não consegue** detectar a
+  topologia de rede, então não falha o boot; em produção emite um **warning
+  explícito** tanto para `TRUST_PROXY=false` (rate-limit colapsa atrás de proxy)
+  quanto para `TRUST_PROXY=true` (XFF spoofável se exposto direto). O número
+  correto de saltos é responsabilidade do operador — configure com cuidado.
 - **`Cache-Control: no-store`** deve ser aplicado nos endpoints sensíveis quando
   existirem (dados de usuário, tokens), evitando cache por intermediários.
 - **Privacidade dos logs (LGPD/GDPR)**: o log de acesso registra o IP do cliente

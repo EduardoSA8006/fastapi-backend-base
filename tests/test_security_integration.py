@@ -189,15 +189,41 @@ def test_production_disables_docs() -> None:
     assert client.get("/api/v1/health", headers=headers).status_code == 200
 
 
+# URL de Redis com senha forte, para os testes de produção que precisam de um
+# store válido (o guard de produção barra Redis sem senha / com senha fraca).
+_STRONG_REDIS_URI = "redis://:S3nhaForteRedis123@redis:6379/0"
+
+
 def test_production_valid_config_boots() -> None:
     # Configuração de produção válida (redis + hosts reais + sem debug) sobe.
     app = create_app(
         _prod_settings(
             rate_limit_enabled=True,
-            rate_limit_storage_uri="redis://redis:6379/0",
+            rate_limit_storage_uri=_STRONG_REDIS_URI,
         )
     )
     assert app is not None
+
+
+def test_production_rejects_weak_redis_password() -> None:
+    with pytest.raises(ValueError, match="Redis"):
+        create_app(
+            _prod_settings(
+                rate_limit_enabled=True,
+                rate_limit_storage_uri="redis://:classup@redis:6379/0",
+            )
+        )
+
+
+def test_production_rejects_redis_without_password() -> None:
+    # Senha ausente (URL sem credencial) também é barrada — paridade com o banco.
+    with pytest.raises(ValueError, match="Redis"):
+        create_app(
+            _prod_settings(
+                rate_limit_enabled=True,
+                rate_limit_storage_uri="redis://redis:6379/0",
+            )
+        )
 
 
 def test_production_rejects_weak_db_password() -> None:
@@ -227,8 +253,63 @@ def test_production_without_trust_proxy_warns(
         create_app(
             _prod_settings(
                 rate_limit_enabled=True,
-                rate_limit_storage_uri="redis://redis:6379/0",
+                rate_limit_storage_uri=_STRONG_REDIS_URI,
                 trust_proxy=False,
             )
         )
     assert any("colapsa num único bucket" in r.getMessage() for r in caplog.records)
+
+
+def test_production_with_trust_proxy_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # O risco simétrico: TRUST_PROXY=true sem proxy real permite spoofing de XFF.
+    # Não falha o boot (config legítima atrás de LB), mas avisa explicitamente.
+    with caplog.at_level(logging.WARNING, logger="classup"):
+        create_app(
+            _prod_settings(
+                rate_limit_enabled=True,
+                rate_limit_storage_uri=_STRONG_REDIS_URI,
+                trust_proxy=True,
+            )
+        )
+    assert any("forja o IP" in r.getMessage() for r in caplog.records)
+
+
+# --- Validação fail-closed do ENVIRONMENT ---
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "prod",
+        "prd",
+        "produção",
+        "dev",
+        "",
+        "prod\u200b",  # zero-width space: strip() NÃO remove → continua inválido
+    ],
+)
+def test_environment_rejects_unknown_values(bad: str) -> None:
+    # Typos plausíveis em deploy não podem virar "modo dev silencioso": o
+    # Settings deve falhar na construção em vez de cair no fallback inseguro.
+    with pytest.raises(ValueError, match="ENVIRONMENT inválido"):
+        Settings(environment=bad)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_prod"),
+    [
+        ("production", True),
+        ("  PRODUCTION  ", True),
+        ("Production", True),
+        ("development", False),
+        ("staging", False),
+    ],
+)
+def test_environment_normalized_and_is_production(
+    raw: str, expected_prod: bool
+) -> None:
+    settings = Settings(environment=raw)
+    assert settings.environment == raw.strip().lower()
+    assert settings.is_production is expected_prod

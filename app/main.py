@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from slowapi.errors import RateLimitExceeded
@@ -54,6 +55,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "Rate-limit em produção exige um store compartilhado "
                 "(redis://...), não memory://."
             )
+        # Paridade com o guard do banco: senha default/fraca (ou ausente) no
+        # Redis também é barrada. O Redis não fica exposto ao host, mas a
+        # inconsistência não se justifica — e protege as chaves do rate-limit de
+        # acesso/flush por um vizinho de rede comprometido. Cobre redis:// e
+        # rediss:// (TLS); senha ausente vira "" (presente em _WEAK_DB_PASSWORDS).
+        if settings.rate_limit_enabled and settings.rate_limit_storage_uri.startswith(
+            "redis"
+        ):
+            redis_password = urlparse(settings.rate_limit_storage_uri).password or ""
+            if redis_password in _WEAK_DB_PASSWORDS:
+                raise ValueError(
+                    "Senha do Redis default/fraca (ou ausente) não é permitida em "
+                    "produção. Use uma senha forte na RATE_LIMIT_STORAGE_URI "
+                    "(redis://:SENHA@host:porta/db)."
+                )
         # Credenciais default/fracas de banco não podem ir para produção
         # (SQLite não tem senha, então é ignorado).
         if not settings.database_url.startswith("sqlite"):
@@ -71,6 +87,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "ENVIRONMENT=production com TRUST_PROXY=false: se houver proxy "
                 "reverso à frente, o rate-limit colapsa num único bucket (IP do "
                 "proxy). Defina TRUST_PROXY=true e NUM_TRUSTED_PROXIES corretamente."
+            )
+        # O risco simétrico: confiar no X-Forwarded-For sem proxy real à frente
+        # deixa o cliente forjar o IP (cada requisição num bucket novo → rate-limit
+        # inútil). A app não tem como detectar a topologia de rede com segurança,
+        # então não falha o boot (TRUST_PROXY=true é legítimo atrás de LB); avisa
+        # de forma explícita para o operador confirmar a exposição.
+        elif settings.rate_limit_enabled and settings.trust_proxy:
+            logger.warning(
+                "ENVIRONMENT=production com TRUST_PROXY=true: confiar no "
+                "X-Forwarded-For só é seguro atrás de EXATAMENTE "
+                f"NUM_TRUSTED_PROXIES={settings.num_trusted_proxies} proxy(ies) "
+                "reverso(s) que reescrevem o header. Se a app estiver exposta "
+                "diretamente, o cliente forja o IP e burla o rate-limit. Confirme "
+                "a topologia de rede."
             )
 
     # Documentação interativa só fora de produção (não expõe a superfície da API).
