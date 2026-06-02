@@ -23,6 +23,12 @@ logger = logging.getLogger("classup")
 # Senhas notoriamente fracas/default que não podem ir para produção.
 _WEAK_DB_PASSWORDS = {"classup", "postgres", "password", "changeme", "admin", ""}
 
+# Usuários admin previsíveis do MinIO. Diferente do banco (cujo usuário não é
+# segredo), o root do MinIO é a credencial de admin do storage; um nome óbvio
+# facilita enumeração caso a porta vaze. Defesa-em-profundidade sobre o
+# isolamento de rede.
+_WEAK_MINIO_USERS = {"classup", "minio", "admin", "root", "minioadmin", ""}
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Cria e configura a instância da aplicação FastAPI."""
@@ -79,6 +85,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise ValueError(
                 "Senha do MinIO default/fraca (ou ausente) não é permitida em "
                 "produção. Defina MINIO_ROOT_PASSWORD com uma senha forte."
+            )
+        # Defesa-em-profundidade: além da senha, o usuário admin do MinIO não
+        # pode ser um nome óbvio em produção (a porta não fica exposta, mas um
+        # root previsível encurta a enumeração se isso mudar).
+        if settings.minio_root_user.strip().lower() in _WEAK_MINIO_USERS:
+            raise ValueError(
+                "Usuário do MinIO default/previsível não é permitido em "
+                "produção. Defina MINIO_ROOT_USER com um nome não-óbvio."
             )
         # Credenciais default/fracas de banco não podem ir para produção
         # (SQLite não tem senha, então é ignorado).

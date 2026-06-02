@@ -206,6 +206,8 @@ def _prod_settings(**overrides: Any) -> Settings:
         # Senha forte de MinIO por padrão — o guard de produção barra a default,
         # então os demais testes de produção precisam de uma válida para subir.
         "minio_root_password": "S3nhaForteMinio123",
+        # Idem para o usuário: o guard recusa admin previsível em produção.
+        "minio_root_user": "classup-svc-7f3a",
     }
     base.update(overrides)
     return Settings(**base)
@@ -350,6 +352,20 @@ def test_production_rejects_minio_without_password() -> None:
 def test_production_accepts_strong_minio_password() -> None:
     # Senha forte de MinIO passa pelo guard (configuração de produção válida).
     app = create_app(_prod_settings(minio_root_password="OutraS3nhaForte456"))
+    assert app is not None
+
+
+@pytest.mark.parametrize("weak_user", ["classup", "admin", "minio", "root", ""])
+def test_production_rejects_predictable_minio_user(weak_user: str) -> None:
+    # Defesa-em-profundidade: usuário admin previsível do MinIO não vai a
+    # produção (facilita enumeração se a porta vazar). Senha forte na base.
+    with pytest.raises(ValueError, match="MinIO"):
+        create_app(_prod_settings(minio_root_user=weak_user))
+
+
+def test_production_accepts_non_obvious_minio_user() -> None:
+    # Usuário não-óbvio (e senha forte) passa pelo guard.
+    app = create_app(_prod_settings(minio_root_user="classup-svc-9b2c"))
     assert app is not None
 
 
