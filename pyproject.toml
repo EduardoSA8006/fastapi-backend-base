@@ -50,8 +50,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Testes podem usar assert (S101) e acessar APIs privadas/de teste livremente.
-"tests/**" = ["S101"]
+# Testes podem usar assert (S101) e credenciais literais de fixture (S106) —
+# senhas de teste embutidas são intencionais (exercitam os guards de produção).
+"tests/**" = ["S101", "S106"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Padrão do FastAPI: chamadas em defaults de argumentos (injeção de dependência).

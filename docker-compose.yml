@@ -36,6 +36,44 @@ services:
       timeout: 3s
       retries: 5
 
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: classup-minio
+    restart: unless-stopped
+    # `server /data` sobe o object store. `--console-address :9001` prende o
+    # console a uma porta que NUNCA é exposta nem publicada — não há caminho de
+    # fora deste container até a UI admin. Operação ad-hoc usa o `mc` embutido
+    # via `docker exec`.
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
+      # H3: senha em env é visível via `docker inspect`/proc — ok neste stack de
+      # dev. Em PRODUÇÃO, prefira Docker secrets (/run/secrets) ou um secrets
+      # manager. O boot da API é recusado com senha default/fraca em produção.
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}
+    # Sem `ports:` — o MinIO NÃO é exposto ao host. Acessível apenas pela rede
+    # interna do Docker (pelo serviço `api`), via o hostname `minio`. Só a porta
+    # da API S3 (9000) fica visível na rede interna; o console (9001) não.
+    expose:
+      - "9000"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      # A imagem traz o `mc` (CLI do MinIO), não traz curl. `mc ready local`
+      # retorna 0 quando o servidor está pronto para atender.
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Endurecimento do container (sem read_only: o MinIO grava em /data):
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cpus: 0.5
+    mem_limit: 256m
+
   api:
     build: .
     container_name: classup-api
@@ -44,6 +82,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     environment:
       APP_NAME: ${APP_NAME:-ClassUp Backend}
@@ -67,6 +107,16 @@ services:
       # (TLS); o guard de senha do main.py já cobre rediss://.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
       RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-classup}@redis:6379/0
+      # MinIO na rede interna (hostname `minio`, porta S3 9000). Só o backend
+      # fala com ele; conteúdo é servido via proxy do FastAPI (nunca presigned
+      # URL pública). minio_use_ssl=false: HTTP em texto puro é aceitável na
+      # rede interna do mesmo host (mesma premissa do redis://). Em produção, o
+      # boot é recusado com MINIO_ROOT_PASSWORD default/fraca.
+      MINIO_ENDPOINT: minio:9000
+      MINIO_USE_SSL: "false"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}
+      MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}
       # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),
       # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.classup.com.
       HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-127.0.0.1}
@@ -93,3 +143,4 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:

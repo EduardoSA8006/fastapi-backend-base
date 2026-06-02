@@ -60,6 +60,18 @@ class Settings(BaseSettings):
     # Permite desligar o registro do IP nos logs de acesso.
     log_client_ip: bool = True
 
+    # MinIO (armazenamento de objetos) — roda na rede interna do Docker, SEM
+    # porta publicada (igual ao Redis/Postgres). Só o backend fala com ele, via
+    # o hostname `minio`. endpoint é host:port (sem scheme); o SDK monta a URL a
+    # partir de minio_use_ssl.
+    minio_endpoint: str = "minio:9000"
+    minio_use_ssl: bool = False
+    minio_root_user: str = "classup"
+    # Default dev (espelha ${MINIO_ROOT_PASSWORD:-classup} do compose); o guard
+    # de produção em main.py recusa este valor fraco. noqa: não é segredo real.
+    minio_root_password: str = "classup"  # noqa: S105
+    minio_bucket: str = "classup-files"
+
     @field_validator("environment")
     @classmethod
     def _validate_environment(cls, value: str) -> str:

@@ -71,6 +71,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "produção. Use uma senha forte na RATE_LIMIT_STORAGE_URI "
                     "(redis://:SENHA@host:porta/db)."
                 )
+        # Paridade com os guards de banco/Redis: senha default/fraca (ou ausente)
+        # do MinIO também é barrada. O storage não fica exposto ao host, mas a
+        # inconsistência não se justifica — protege os objetos de acesso/flush
+        # por um vizinho de rede comprometido.
+        if settings.minio_root_password in _WEAK_DB_PASSWORDS:
+            raise ValueError(
+                "Senha do MinIO default/fraca (ou ausente) não é permitida em "
+                "produção. Defina MINIO_ROOT_PASSWORD com uma senha forte."
+            )
         # Credenciais default/fracas de banco não podem ir para produção
         # (SQLite não tem senha, então é ignorado).
         if not settings.database_url.startswith("sqlite"):

@@ -203,6 +203,9 @@ def _prod_settings(**overrides: Any) -> Settings:
         "trusted_hosts": ["api.test"],
         "rate_limit_enabled": False,  # evita exigir redis nestes testes
         "rate_limit_storage_uri": "memory://",
+        # Senha forte de MinIO por padrão — o guard de produção barra a default,
+        # então os demais testes de produção precisam de uma válida para subir.
+        "minio_root_password": "S3nhaForteMinio123",
     }
     base.update(overrides)
     return Settings(**base)
@@ -325,6 +328,37 @@ def test_production_with_trust_proxy_warns(
             )
         )
     assert any("forja o IP" in r.getMessage() for r in caplog.records)
+
+
+# --- Guard de produção do MinIO (senha do storage) ---
+
+
+def test_production_rejects_weak_minio_password() -> None:
+    # Paridade com Redis/DB: senha default/fraca do MinIO não pode ir a produção.
+    # O storage não fica exposto ao host, mas a inconsistência não se justifica —
+    # protege os objetos de acesso/flush por um vizinho de rede comprometido.
+    with pytest.raises(ValueError, match="MinIO"):
+        create_app(_prod_settings(minio_root_password="classup"))
+
+
+def test_production_rejects_minio_without_password() -> None:
+    # Senha ausente (vazia) também é barrada — paridade com o banco/Redis.
+    with pytest.raises(ValueError, match="MinIO"):
+        create_app(_prod_settings(minio_root_password=""))
+
+
+def test_production_accepts_strong_minio_password() -> None:
+    # Senha forte de MinIO passa pelo guard (configuração de produção válida).
+    app = create_app(_prod_settings(minio_root_password="OutraS3nhaForte456"))
+    assert app is not None
+
+
+def test_minio_settings_defaults() -> None:
+    # Defaults coerentes com o compose (rede interna, hostname `minio`).
+    settings = Settings()
+    assert settings.minio_endpoint == "minio:9000"
+    assert settings.minio_use_ssl is False
+    assert settings.minio_bucket == "classup-files"
 
 
 # --- Validação fail-closed do ENVIRONMENT ---
