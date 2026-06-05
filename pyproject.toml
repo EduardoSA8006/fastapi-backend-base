@@ -59,7 +59,7 @@ select = [
 # S106) — senhas de teste embutidas são intencionais (exercitam guards e
 # containers efêmeros). S603: subprocess nos testes de integração/e2e roda
 # comandos fixos (docker/alembic), sem entrada não confiável.
-"tests/**" = ["S101", "S105", "S106", "S603"]
+"tests/**" = ["S101", "S105", "S106", "S603", "S607"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Padrão do FastAPI: chamadas em defaults de argumentos (injeção de dependência).
@@ -118,5 +118,13 @@ dev = [
     "mypy (>=2.1.0,<3.0.0)",
     "pytest-cov (>=7.1.0,<8.0.0)",
     "testcontainers (>=4.14.2,<5.0.0)",
-    "hypothesis (>=6.155.2,<7.0.0)"
+    "hypothesis (>=6.155.2,<7.0.0)",
+    "mutmut (>=3.5.0,<4.0.0)"
 ]
+
+[tool.mutmut]
+# Mutation testing — métrica LOCAL (não é gate de CI; ver README).
+# Mata-se mutantes com a suíte unitária (rápida); rodar:
+#   poetry run mutmut run && poetry run mutmut results
+paths_to_mutate = "app/"
+tests_dir = "tests/"

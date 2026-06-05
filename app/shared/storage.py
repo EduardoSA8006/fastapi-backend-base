@@ -97,8 +97,16 @@ def _ensure_bucket(bucket: str) -> None:
             logger.info("storage.bucket.created", extra={"bucket": bucket})
         _known_buckets.add(bucket)
     except S3Error as exc:
-        # Corrida de criação entre processos (duas réplicas no boot) = sucesso.
-        if exc.code in {"BucketAlreadyOwnedByUs", "BucketAlreadyExists"}:
+        # Corrida de criação (réplicas no boot OU puts concorrentes no mesmo
+        # processo) = sucesso. O código REAL do MinIO/S3 é
+        # "BucketAlreadyOwnedByYou" (descoberto pelo teste de concorrência —
+        # a grafia "...OwnedByUs" não existe e deixava a corrida explodir);
+        # os demais cobrem variações de implementações S3-compat.
+        if exc.code in {
+            "BucketAlreadyOwnedByYou",
+            "BucketAlreadyOwnedByUs",
+            "BucketAlreadyExists",
+        }:
             _known_buckets.add(bucket)
             return
         logger.exception("storage.bucket.ensure_failed", extra={"bucket": bucket})

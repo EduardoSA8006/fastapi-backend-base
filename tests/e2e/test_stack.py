@@ -159,3 +159,59 @@ def test_burst_de_50_requisicoes_concorrentes(stack: str) -> None:
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as pool:
         codes = list(pool.map(_hit, range(50)))
     assert codes == [200] * 50
+
+
+# --- Cenários de falha/tempo real ---
+
+# SCAN (scan_iter), NÃO keys(): o redis-celery do stack tem o comando KEYS
+# desabilitado (rename-command — nosso próprio hardening); keys() falharia
+# aqui mesmo com o heartbeat funcionando. SCAN não é renomeado.
+_HEARTBEAT_CHECK = (
+    "import os, time, sys\n"
+    "import redis\n"
+    "backend = redis.from_url(os.environ['CELERY_RESULT_BACKEND'],"
+    " socket_timeout=5)\n"
+    "deadline = time.monotonic() + 120\n"
+    "while time.monotonic() < deadline:\n"
+    "    for key in backend.scan_iter('celery-task-meta-*'):\n"
+    "        value = backend.get(key)\n"
+    "        if value is not None and b'\"pong\"' in value:\n"
+    "            print('HEARTBEAT-OK'); sys.exit(0)\n"
+    "    time.sleep(3)\n"
+    "print('SEM-HEARTBEAT'); sys.exit(1)\n"
+)
+
+
+def test_beat_heartbeat_real_no_stack(stack: str) -> None:
+    # O pipeline COMPLETO no stack deployado: o beat (container) publica o
+    # core.ping a cada 60s, o worker executa e o resultado aparece no result
+    # backend. Espera até 120s (1º disparo = beat_start + 60s) — o trecho
+    # que a integração cobre com heartbeat de 1s, aqui na cadência real.
+    # Verificado de DENTRO do worker (o redis-celery não é alcançável do
+    # host, por design).
+    code, output = compose_exec("worker", "python", "-c", _HEARTBEAT_CHECK, timeout=140)
+    assert code == 0, f"heartbeat do beat não chegou ao backend: {output}"
+    assert "HEARTBEAT-OK" in output
+
+
+def test_worker_se_recupera_de_restart(stack: str) -> None:
+    # Resiliência: worker reiniciado (deploy/OOM/evict) volta a healthy —
+    # reconecta ao broker e responde ao inspect ping sem intervenção.
+    import subprocess
+    import time
+
+    subprocess.run(
+        ["docker", "restart", "classup-worker"],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        if (
+            container_state("classup-worker").get("Health", {}).get("Status")
+            == "healthy"
+        ):
+            return
+        time.sleep(5)
+    raise AssertionError("worker não voltou a healthy após restart")
