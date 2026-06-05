@@ -59,3 +59,36 @@ def test_json_formatter_inclui_stacktrace_de_exc_info() -> None:
     data = json.loads(JsonFormatter().format(record))
     assert "exc_info" in data
     assert "ValueError" in data["exc_info"]
+
+
+def test_configure_logging_substitui_handlers_pre_existentes_do_root() -> None:
+    # Cenário gunicorn/UvicornWorker: o servidor configura o root ANTES da app
+    # importar. basicConfig sem force seria no-op — o JsonFormatter (e o escape
+    # anti-CRLF) não se aplicariam e, com o level default WARNING do root, as
+    # access lines INFO sumiriam por completo. configure_logging deve assumir
+    # o root: substituir handlers e definir o level.
+    import logging
+
+    import app.core.logging as log_mod
+
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    saved_configured = log_mod._configured
+    early = logging.StreamHandler()
+    early.setFormatter(logging.Formatter("%(message)s"))
+    try:
+        root.handlers[:] = [early]
+        root.setLevel(logging.WARNING)
+        log_mod._configured = False
+
+        log_mod.configure_logging(debug=False)
+
+        assert early not in root.handlers, "handler pré-existente não foi substituído"
+        formatters = [type(h.formatter).__name__ for h in root.handlers]
+        assert formatters == ["JsonFormatter"]
+        assert root.level == logging.INFO  # access lines INFO não são descartadas
+    finally:
+        root.handlers[:] = saved_handlers
+        root.setLevel(saved_level)
+        log_mod._configured = saved_configured

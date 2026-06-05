@@ -11,3 +11,15 @@ O teste do próprio guard usa monkeypatch.delenv para simular a ausência.
 import os
 
 os.environ.setdefault("ENVIRONMENT", "development")
+
+# O pytest é o DONO dos handlers do root durante a suíte (caplog injeta os
+# seus). configure_logging agora substitui handlers pré-existentes do root
+# (correção do no-op sob gunicorn) — se rodasse aqui, removeria os handlers
+# do pytest no primeiro create_app e quebraria o caplog daquele teste.
+# Marcar como já-configurado preserva o comportamento efetivo anterior
+# (sob pytest o basicConfig sempre foi no-op); o wiring real é coberto
+# explicitamente por test_configure_logging_substitui_handlers_pre_existentes
+# (que reseta a flag e restaura o estado do root).
+import app.core.logging as _app_logging
+
+_app_logging._configured = True

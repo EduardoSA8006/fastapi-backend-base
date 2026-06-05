@@ -59,14 +59,24 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging(debug: bool = False) -> None:
-    """Configura o logging da aplicação como JSON (idempotente)."""
+    """Configura o logging da aplicação como JSON (idempotente).
+
+    Assume a POSSE do root logger: substitui handlers pré-existentes em vez
+    de usar basicConfig — que é no-op quando o root já tem handler (cenário
+    gunicorn/UvicornWorker, que configura logging antes do import da app).
+    Sem isso, o JsonFormatter (e o escape anti-CRLF, defesa de log-injection)
+    não se aplicaria e, com o level default WARNING do root, as access lines
+    INFO seriam descartadas por completo.
+
+    Não fechamos os handlers removidos: podem ser de terceiros (gunicorn) e
+    compartilham streams (stderr) que não nos pertencem.
+    """
     global _configured
     if _configured:
         return
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
-    logging.basicConfig(
-        level=logging.DEBUG if debug else logging.INFO,
-        handlers=[handler],
-    )
+    root = logging.getLogger()
+    root.handlers[:] = [handler]
+    root.setLevel(logging.DEBUG if debug else logging.INFO)
     _configured = True
