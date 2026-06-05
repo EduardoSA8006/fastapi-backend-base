@@ -32,6 +32,9 @@ def test_rate_limit_returns_429_when_exceeded() -> None:
     assert last.status_code == 429
     assert last.json()["detail"] == "Rate limit exceeded"
     assert "retry_after" in last.json()
+    # Contrato completo: o header HTTP acompanha o corpo (clientes que só
+    # leem headers também recebem o sinal de backoff).
+    assert "Retry-After" in last.headers
 
 
 def test_rate_limit_fail_closed_when_store_unavailable() -> None:
@@ -46,7 +49,13 @@ def test_rate_limit_fail_closed_when_store_unavailable() -> None:
         rate_limit_storage_uri="redis://127.0.0.1:6399/0",
     )
     # /_rl não é isento do rate-limit (os probes são) — exercita o fail-closed.
-    assert client.get("/_rl").status_code == 500
+    # Contrato completo: o 500 nasce no ErrorBoundary — JSON padronizado,
+    # blindado, sem vazar a causa (erro de conexão Redis) ao cliente.
+    response = client.get("/_rl")
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Erro interno."}
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert "redis" not in response.text.lower()
 
 
 def test_rate_limit_disabled_allows_all() -> None:
@@ -59,6 +68,9 @@ def test_body_size_limit_rejects_large_payload() -> None:
     client = make_client(max_body_size=10)
     response = client.post("/api/v1/health", content=b"x" * 50)
     assert response.status_code == 413
+    # Contrato completo: corpo JSON padronizado, sem eco do payload.
+    assert response.json() == {"detail": "Request body too large"}
+    assert "x" * 10 not in response.text
 
 
 def test_body_size_limit_rejects_chunked_payload_on_unread_endpoint() -> None:
@@ -72,12 +84,15 @@ def test_body_size_limit_rejects_chunked_payload_on_unread_endpoint() -> None:
     client = make_client(max_body_size=10)
     response = client.post("/api/v1/health", content=gen())
     assert response.status_code == 413
+    assert response.json() == {"detail": "Request body too large"}
 
 
 def test_trusted_host_rejects_unknown_host() -> None:
     client = make_client(trusted_hosts=["example.com"])
     response = client.get("/api/v1/health")
     assert response.status_code == 400
+    # A rejeição não ecoa o Host recebido (sem reflexo de entrada).
+    assert "testserver" not in response.text
 
 
 def test_healthcheck_host_must_be_trusted() -> None:
@@ -111,6 +126,9 @@ def test_docs_renders_without_csp() -> None:
     response = client.get("/docs")
     assert response.status_code == 200
     assert "Content-Security-Policy" not in response.headers
+    # A isenção é SÓ da CSP: as demais proteções permanecem nos docs.
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Frame-Options") == "DENY"
 
 
 def test_security_headers_present_on_413() -> None:
