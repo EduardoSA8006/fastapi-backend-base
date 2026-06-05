@@ -43,9 +43,8 @@ def test_security_headers_on_real_app() -> None:
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert (
-        response.headers["Content-Security-Policy"]
-        == "default-src 'self'; frame-ancestors 'none'"
+    assert response.headers["Content-Security-Policy"] == (
+        "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
     )
 
 

@@ -12,7 +12,12 @@ DEFAULT_PERMISSIONS_POLICY = (
 )
 
 # frame-ancestors 'none' complementa o X-Frame-Options (impede enquadramento).
-DEFAULT_CSP = "default-src 'self'; frame-ancestors 'none'"
+# object-src/base-uri não herdam do default-src de forma uniforme em agentes
+# antigos — fechar explicitamente é barato: sem plugins (object) e sem
+# reescrita da base de URLs relativas (base) numa API JSON.
+DEFAULT_CSP = (
+    "default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
+)
 
 
 class SecurityHeadersMiddleware:
