@@ -113,3 +113,49 @@ def test_worker_e_minio_healthy_beat_rodando(stack: str) -> None:
     assert worker.get("Health", {}).get("Status") == "healthy"
     assert minio.get("Health", {}).get("Status") == "healthy"
     assert beat.get("Status") == "running"
+
+
+# --- Storage MinIO pela rede interna real ---
+
+_STORAGE_CHECK = (
+    "import asyncio\n"
+    "from app.shared import storage\n"
+    "from app.core.config import get_settings\n"
+    "async def main():\n"
+    "    bucket = get_settings().minio_bucket\n"
+    "    await storage.put_object(bucket=bucket, key='e2e/proof.txt',"
+    " data=b'e2e-bytes', content_type='text/plain')\n"
+    "    data = await storage.get_object(bucket=bucket, key='e2e/proof.txt')\n"
+    "    assert data == b'e2e-bytes', data\n"
+    "    await storage.delete_object(bucket=bucket, key='e2e/proof.txt')\n"
+    "    print('STORAGE-OK')\n"
+    "asyncio.run(main())\n"
+)
+
+
+def test_storage_round_trip_dentro_do_stack(stack: str) -> None:
+    # Executa DENTRO do container api: facade real + credenciais reais +
+    # hostname `minio` resolvido pela rede interna do compose (a porta 9000
+    # não é alcançável do host — este é o único caminho, por design).
+    code, output = compose_exec("api", "python", "-c", _STORAGE_CHECK, timeout=60)
+    assert code == 0, f"storage falhou dentro do stack: {output}"
+    assert "STORAGE-OK" in output
+
+
+# --- Smoke de concorrência ---
+
+
+def test_burst_de_50_requisicoes_concorrentes(stack: str) -> None:
+    # Sanidade do --limit-concurrency do uvicorn sob carga leve: 50 chamadas
+    # paralelas, todas respondem 200 (probes são isentos do rate-limit).
+    # Slowloris/carga real são responsabilidade da borda (ver README) — fora
+    # do escopo de suíte de testes.
+    import concurrent.futures
+
+    def _hit(_: int) -> int:
+        with httpx.Client(base_url=stack, timeout=15) as client:
+            return client.get("/api/v1/health").status_code
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as pool:
+        codes = list(pool.map(_hit, range(50)))
+    assert codes == [200] * 50

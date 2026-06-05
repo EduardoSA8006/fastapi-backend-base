@@ -89,8 +89,10 @@ def ping() -> str:
 celery_app.conf.beat_schedule = {
     "celery-pipeline-heartbeat": {
         "task": "core.ping",
-        "schedule": 60.0,
+        # Cadência configurável (CELERY_HEARTBEAT_SECONDS): o operador retuna
+        # sem mudar código; a integração do pipeline usa 1s.
+        "schedule": settings.celery_heartbeat_seconds,
         # Heartbeat atrasado não tem valor — descarta em vez de empilhar.
-        "options": {"expires": 50},
+        "options": {"expires": settings.celery_heartbeat_seconds * 0.8},
     },
 }

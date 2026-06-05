@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://:classup@redis-celery:6379/1"
     # Execução síncrona in-process (sem broker) — só para testes.
     celery_task_always_eager: bool = False
+    # Cadência do heartbeat do beat (core.ping). Retunável via env sem mudar
+    # código; a integração do pipeline beat→broker→worker usa 1s.
+    celery_heartbeat_seconds: float = 60.0
 
     @field_validator("environment")
     @classmethod

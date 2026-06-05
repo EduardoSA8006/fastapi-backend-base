@@ -175,6 +175,22 @@ services:
       # (TLS); o guard de senha do main.py já cobre rediss://.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
       RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-classup}@redis:6379/0
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-100/minute}
+      # Configs de segurança lidas do ambiente do HOST. SEM estas linhas o
+      # container não as recebe (o compose só injeta o que está aqui) — e em
+      # produção o boot seria recusado por trusted_hosts=['*'] (default). Os
+      # defaults abaixo preservam o comportamento de dev.
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-["*"]}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-[]}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-false}
+      CORS_ALLOW_METHODS: ${CORS_ALLOW_METHODS:-["*"]}
+      CORS_ALLOW_HEADERS: ${CORS_ALLOW_HEADERS:-["*"]}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      NUM_TRUSTED_PROXIES: ${NUM_TRUSTED_PROXIES:-1}
+      LOG_CLIENT_IP: ${LOG_CLIENT_IP:-true}
+      MAX_BODY_SIZE: ${MAX_BODY_SIZE:-1048576}
       # MinIO na rede interna (hostname `minio`, porta S3 9000). Só o backend
       # fala com ele; conteúdo é servido via proxy do FastAPI (nunca presigned
       # URL pública). minio_use_ssl=false: HTTP em texto puro é aceitável na

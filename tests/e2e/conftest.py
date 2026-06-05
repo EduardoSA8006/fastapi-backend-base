@@ -1,17 +1,22 @@
-"""Fixture e2e: sobe o stack compose REAL num projeto isolado (classup-e2e).
+"""Fixtures e2e: sobem o stack compose REAL em projetos isolados.
 
-Isolamento: `-p classup-e2e` cria containers/volumes do projeto e2e
-(classup-e2e_*); o teardown `down -v` remove SÓ esses volumes — o stack/dados
-de dev do usuário não são tocados. Porta da API publicada em 18001 para não
-colidir com o dev (8001).
+Dois stacks, SEQUENCIAIS (module-scoped — container_name é fixo e único por
+host, então nunca coexistem):
+- `stack` (classup-e2e, porta 18001): modo development — o stack como sobe
+  em dev.
+- `stack_prod` (classup-e2e-prod, porta 18002): ENVIRONMENT=production com
+  credenciais fortes geradas para o teste — valida os guards VIVOS.
 
-Limitação consciente: o compose fixa container_name (classup-api etc.), que é
-único por host — se o stack de DEV estiver rodando, o e2e é PULADO com
-instrução, em vez de derrubar/conflitar com o ambiente do usuário.
+Isolamento: cada projeto tem containers/volumes próprios (classup-e2e_*);
+o teardown `down -v` remove SÓ os volumes do projeto — o stack/dados de dev
+do usuário não são tocados. Sobra de execução e2e anterior (teardown que
+falhou) é detectada pelo label de projeto do compose e removida; stack de
+DEV em execução => skip (não derrubamos o ambiente do usuário).
 """
 
 import json
 import os
+import secrets
 import subprocess
 import time
 from collections.abc import Iterator
@@ -19,19 +24,30 @@ from typing import Any
 
 import pytest
 
-PROJECT = "classup-e2e"
-API_PORT = "18001"
-BASE_URL = f"http://127.0.0.1:{API_PORT}"
+PROJECT_DEV = "classup-e2e"
+PROJECT_PROD = "classup-e2e-prod"
+_E2E_PROJECTS = {PROJECT_DEV, PROJECT_PROD}
 
-_COMPOSE = ["docker", "compose", "-p", PROJECT]
-_ENV = {**os.environ, "API_PORT": API_PORT}
+PROD_HOST = "api.e2e.test"
+
+
+def _compose(project: str) -> list[str]:
+    return ["docker", "compose", "-p", project]
 
 
 def _run(
-    args: list[str], timeout: int = 60, check: bool = True
+    args: list[str],
+    env: dict[str, str] | None = None,
+    timeout: int = 60,
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        args, env=_ENV, capture_output=True, text=True, timeout=timeout, check=check
+        args,
+        env={**os.environ, **(env or {})},
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=check,
     )
 
 
@@ -46,8 +62,7 @@ def _health(container: str) -> str:
 def _wait_healthy(container: str, timeout_s: int) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        status = _health(container)
-        if status == "healthy":
+        if _health(container) == "healthy":
             return
         time.sleep(3)
     raise TimeoutError(
@@ -55,11 +70,8 @@ def _wait_healthy(container: str, timeout_s: int) -> None:
     )
 
 
-def _dev_stack_running() -> bool:
-    # container_name é único por host: se um classup-api já existe, distingue
-    # pelo label de projeto do compose. Sobra do PRÓPRIO e2e (teardown que
-    # falhou) é removida e o teste segue; stack de DEV em pé => skip (não
-    # derrubamos o ambiente do usuário).
+def _existing_stack_project() -> str | None:
+    """Projeto compose dono do container classup-api, se ele existir."""
     result = _run(
         [
             "docker",
@@ -70,38 +82,87 @@ def _dev_stack_running() -> bool:
         ],
         check=False,
     )
-    if result.returncode != 0:
-        return False  # não existe container classup-api
-    if result.stdout.strip() == PROJECT:
-        # Sobra de uma execução e2e anterior — limpa e prossegue.
-        _run([*_COMPOSE, "down", "-v", "--remove-orphans"], timeout=180, check=False)
-        return False
-    return True
+    return result.stdout.strip() if result.returncode == 0 else None
 
 
-@pytest.fixture(scope="session")
-def stack() -> Iterator[str]:
-    if _dev_stack_running():
-        pytest.skip(
-            "stack de dev (classup-api) em execução — pare-o "
-            "(docker compose down) para rodar o e2e"
+def _ensure_no_conflicting_stack(env: dict[str, str]) -> None:
+    project = _existing_stack_project()
+    if project is None:
+        return
+    if project in _E2E_PROJECTS:
+        # Sobra de QUALQUER execução e2e anterior — limpa e prossegue.
+        _run(
+            [*_compose(project), "down", "-v", "--remove-orphans"],
+            env=env,
+            timeout=180,
+            check=False,
         )
+        return
+    pytest.skip(
+        f"stack '{project}' (dev?) em execução com os mesmos container_name — "
+        "pare-o (docker compose down) para rodar o e2e"
+    )
+
+
+def _stack_lifecycle(project: str, env: dict[str, str]) -> Iterator[str]:
+    _ensure_no_conflicting_stack(env)
     try:
         # Build + up: primeiro build é demorado (imagem + poetry install).
-        _run([*_COMPOSE, "up", "-d", "--build"], timeout=900)
+        _run([*_compose(project), "up", "-d", "--build"], env=env, timeout=900)
         # api healthy implica db/redis/redis-celery/minio healthy (depends_on).
         _wait_healthy("classup-api", timeout_s=300)
         # worker: healthcheck = celery inspect ping real pelo broker.
         _wait_healthy("classup-worker", timeout_s=180)
-        yield BASE_URL
+        yield f"http://127.0.0.1:{env['API_PORT']}"
     finally:
-        _run([*_COMPOSE, "down", "-v", "--remove-orphans"], timeout=180, check=False)
+        _run(
+            [*_compose(project), "down", "-v", "--remove-orphans"],
+            env=env,
+            timeout=180,
+            check=False,
+        )
 
 
-def compose_exec(service: str, *cmd: str, timeout: int = 30) -> tuple[int, str]:
+# Ambientes dos dois stacks (module-level para compose_exec usar o certo).
+_DEV_ENV = {"API_PORT": "18001"}
+
+
+def _prod_env() -> dict[str, str]:
+    # Credenciais fortes geradas por execução: os guards de produção exigem
+    # senhas não-fracas e usuário MinIO não-óbvio — aqui eles rodam DE VERDADE.
+    return {
+        "API_PORT": "18002",
+        "ENVIRONMENT": "production",
+        "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
+        "REDIS_PASSWORD": secrets.token_urlsafe(24),
+        "CELERY_REDIS_PASSWORD": secrets.token_urlsafe(24),
+        "MINIO_ROOT_USER": "classup-svc-e2e",
+        "MINIO_ROOT_PASSWORD": secrets.token_urlsafe(24),
+        "TRUSTED_HOSTS": f'["{PROD_HOST}"]',
+        "HEALTHCHECK_HOST": PROD_HOST,
+    }
+
+
+@pytest.fixture(scope="module")
+def stack() -> Iterator[str]:
+    """Stack em modo development (como em dev)."""
+    yield from _stack_lifecycle(PROJECT_DEV, _DEV_ENV)
+
+
+@pytest.fixture(scope="module")
+def stack_prod() -> Iterator[str]:
+    """Stack em modo production (guards vivos, credenciais fortes)."""
+    yield from _stack_lifecycle(PROJECT_PROD, _prod_env())
+
+
+def compose_exec(
+    service: str, *cmd: str, project: str = PROJECT_DEV, timeout: int = 30
+) -> tuple[int, str]:
     """Executa um comando dentro de um serviço do stack e2e."""
     result = _run(
-        [*_COMPOSE, "exec", "-T", service, *cmd], timeout=timeout, check=False
+        [*_compose(project), "exec", "-T", service, *cmd],
+        timeout=timeout,
+        check=False,
     )
     return result.returncode, result.stdout + result.stderr
 

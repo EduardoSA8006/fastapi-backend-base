@@ -42,6 +42,50 @@ jobs:
       - name: Auditoria de dependências (pip-audit)
         run: poetry run pip-audit
 
+  # Testes de integração: infra real efêmera (Postgres/Redis/MinIO via
+  # testcontainers) — o runner ubuntu-latest traz Docker. Roda em paralelo ao
+  # job `test` (que permanece o gate rápido de lint/tipos/cobertura).
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+          cache: poetry
+
+      - name: Instalar dependências
+        run: poetry install --no-interaction
+
+      - name: Testes de integração (testcontainers)
+        run: poetry run pytest -m integration --no-cov
+
+  # E2E: sobe o stack compose completo (projetos isolados classup-e2e*) e o
+  # ataca de fora com httpx — inclui o invariante de isolamento de rede e o
+  # stack em modo production com credenciais fortes geradas no teste.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+          cache: poetry
+
+      - name: Instalar dependências
+        run: poetry install --no-interaction
+
+      - name: Testes e2e (compose + httpx)
+        run: poetry run pytest -m e2e --no-cov
+
   # SAST do código Python já é coberto pelas regras `S` (bandit) do ruff no job
   # acima; aqui ficam o secret scanning e o scan da imagem Docker.
   security:

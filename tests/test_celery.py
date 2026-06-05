@@ -158,6 +158,13 @@ def test_celery_beat_schedules_heartbeat() -> None:
     assert schedule["celery-pipeline-heartbeat"]["schedule"] == 60.0
 
 
+def test_heartbeat_interval_e_configuravel() -> None:
+    # O operador retuna a cadência via env (CELERY_HEARTBEAT_SECONDS) sem
+    # mudar código — usado também pela integração do beat (1s).
+    assert Settings().celery_heartbeat_seconds == 60.0
+    assert Settings(celery_heartbeat_seconds=1.0).celery_heartbeat_seconds == 1.0
+
+
 # --- task de debug em modo eager ---
 
 

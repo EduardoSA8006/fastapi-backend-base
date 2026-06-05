@@ -26,9 +26,9 @@ def pg_url() -> Iterator[str]:
 
 
 def test_alembic_upgrade_head_em_banco_limpo(pg_url: str) -> None:
-    # As migrações nunca tinham sido executadas em teste. Roda em subprocesso
-    # (como o entrypoint do container) porque o env.py lê settings.database_url
-    # do ambiente no import — o processo atual já tem settings cacheado.
+    # Roda em subprocesso (como o entrypoint do container) porque o env.py lê
+    # settings.database_url do ambiente no import — o processo atual já tem
+    # settings cacheado.
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         env={**os.environ, "DATABASE_URL": pg_url},
@@ -37,6 +37,21 @@ def test_alembic_upgrade_head_em_banco_limpo(pg_url: str) -> None:
         timeout=120,
     )
     assert result.returncode == 0, f"alembic falhou:\n{result.stderr}"
+
+    # Não é no-op: a baseline grava alembic_version == head — máquina de
+    # migração completa (conexão, transação, version table) exercitada.
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import create_engine, text
+
+    head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+    engine = create_engine(pg_url)
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT version_num FROM alembic_version"))
+            assert row.scalar_one() == head
+    finally:
+        engine.dispose()
 
 
 def test_ready_database_ok_com_postgres_real(pg_url: str) -> None:
