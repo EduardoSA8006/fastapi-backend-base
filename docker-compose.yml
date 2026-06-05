@@ -1,8 +1,17 @@
+# Segmentação de rede (least-privilege entre containers):
+#   data_net      — api, worker, beat, db, minio (tasks legítimos usam banco/storage)
+#   ratelimit_net — api e redis SOMENTE: worker/beat NÃO têm rota até o Redis
+#                   do rate-limit — um task comprometido não alcança/flusha
+#                   essas chaves.
+#   celery_net    — api, worker, beat e redis-celery (broker/result backend
+#                   dedicados); a api entra só para despachar .delay().
 services:
   db:
     image: postgres:16-alpine
     container_name: classup-db
     restart: unless-stopped
+    networks:
+      - data_net
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-classup}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-classup}
@@ -35,6 +44,61 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - ratelimit_net
+
+  redis-celery:
+    image: redis:7-alpine
+    container_name: classup-redis-celery
+    restart: unless-stopped
+    # Broker + result backend DEDICADOS do Celery — instância separada do
+    # Redis do rate-limit (o guard de produção recusa apontá-los para a mesma
+    # instância). `sh -c` para a senha vir do environment (expandida pelo
+    # shell do container, não fica no argv visível do compose):
+    #   - rename-command "": desativa comandos destrutivos/de reconhecimento
+    #     (um task comprometido não consegue FLUSH/varrer/reconfigurar);
+    #   - maxmemory + noeviction: broker NUNCA descarta mensagens
+    #     silenciosamente — quando cheio, escrita falha alto (monitorável);
+    #   - appendonly no: filas são transitórias; durabilidade vem do
+    #     acks_late + redelivery, não do disco.
+    command:
+      - sh
+      - -c
+      - >
+        exec redis-server
+        --requirepass "$$CELERY_REDIS_PASSWORD"
+        --rename-command FLUSHALL ""
+        --rename-command FLUSHDB ""
+        --rename-command KEYS ""
+        --rename-command CONFIG ""
+        --rename-command DEBUG ""
+        --maxmemory 128mb
+        --maxmemory-policy noeviction
+        --appendonly no
+    environment:
+      CELERY_REDIS_PASSWORD: ${CELERY_REDIS_PASSWORD:-classup}
+    # Sem `ports:` — não é exposto ao host; alcançável só em celery_net.
+    expose:
+      - "6379"
+    healthcheck:
+      # REDISCLI_AUTH (env) em vez de `-a senha`: a credencial não aparece em
+      # `ps`/argv dentro do container durante o probe.
+      test:
+        [
+          "CMD-SHELL",
+          'REDISCLI_AUTH="$$CELERY_REDIS_PASSWORD" redis-cli ping | grep -q PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cpus: 0.5
+    mem_limit: 192m
+    networks:
+      - celery_net
 
   minio:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -73,6 +137,8 @@ services:
       - ALL
     cpus: 0.5
     mem_limit: 256m
+    networks:
+      - data_net
 
   api:
     build: .
@@ -82,6 +148,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-celery:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -117,6 +185,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}
       MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}
+      # Celery: a api só DESPACHA tasks (.delay()) — broker/result backend na
+      # instância dedicada (redis-celery), separada do Redis do rate-limit.
+      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/0
+      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/1
       # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),
       # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.classup.com.
       HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-127.0.0.1}
@@ -140,7 +212,141 @@ services:
     pids_limit: 256            # limita fork bombs
     cpus: 1.0                  # teto de CPU
     mem_limit: 512m            # teto de memória
+    networks:
+      - data_net
+      - ratelimit_net
+      - celery_net
+
+  worker:
+    build: .
+    container_name: classup-worker
+    restart: unless-stopped
+    # Mesma imagem da api; o entrypoint espera o banco mas NÃO migra
+    # (RUN_MIGRATIONS_ON_START=false) — migração é responsabilidade da
+    # api/etapa de deploy, evitando corrida entre containers.
+    # Flags: --without-gossip/--mingle/--heartbeat desligam o chatter
+    # peer-a-peer (um único worker não precisa; menos tráfego de controle no
+    # broker = superfície menor). O control mailbox continua ativo — o
+    # healthcheck `inspect ping` depende dele.
+    command:
+      [
+        "celery", "-A", "app.worker", "worker",
+        "--loglevel=info", "--concurrency=2",
+        "--without-gossip", "--without-mingle", "--without-heartbeat",
+      ]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-celery:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      RUN_MIGRATIONS_ON_START: "false"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
+      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/0
+      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/1
+      # Tasks futuros alcançam o storage (data_net) com a MESMA credencial da
+      # api — não há credencial separada porque o MinIO não tem contas com
+      # escopo neste design (ver spec do MinIO).
+      MINIO_ENDPOINT: minio:9000
+      MINIO_USE_SSL: "false"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}
+      MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}
+    healthcheck:
+      # Processo vivo ≠ worker funcional: `inspect ping` faz round-trip real
+      # pelo broker e só responde se o loop de consumo está saudável.
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.worker inspect ping -d celery@$$HOSTNAME -t 5 | grep -q pong",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Mesmo endurecimento da api:
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    cpus: 1.0
+    mem_limit: 512m
+    # data_net (banco/storage p/ tasks) + celery_net (broker). NUNCA
+    # ratelimit_net: um task comprometido não tem rota até o Redis do
+    # rate-limit.
+    networks:
+      - data_net
+      - celery_net
+
+  beat:
+    build: .
+    container_name: classup-beat
+    restart: unless-stopped
+    # EXATAMENTE 1 réplica: dois beats = todo schedule disparado em dobro.
+    # Se a topologia um dia escalar, migre para celery-redbeat (scheduler
+    # Redis com lock distribuído). O arquivo de schedule fica em /tmp
+    # (tmpfs, efêmero de propósito — o beat o reconstrói do beat_schedule
+    # no boot; nada nele é fonte de verdade).
+    command:
+      [
+        "celery", "-A", "app.worker", "beat",
+        "--loglevel=info", "--schedule=/tmp/celerybeat-schedule",
+      ]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-celery:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      RUN_MIGRATIONS_ON_START: "false"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
+      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/0
+      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/1
+    healthcheck:
+      # Beat não executa tasks — só publica no broker. Sinal de vida: o
+      # arquivo de schedule é sincronizado periodicamente (PersistentScheduler
+      # sincroniza a cada ~3min; o heartbeat de 60s garante atividade).
+      # Janela de 10min = 3 chances de sync antes de acusar unhealthy.
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import glob,os,sys,time; fs=glob.glob('/tmp/celerybeat-schedule*'); sys.exit(0 if fs and time.time()-max(os.path.getmtime(f) for f in fs)<600 else 1)\"",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      # Folga para o primeiro sync do scheduler (~180s) + boot lento: não
+      # acusa unhealthy antes de o arquivo ter chance real de existir.
+      start_period: 210s
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    cpus: 0.25
+    mem_limit: 256m
+    networks:
+      - data_net
+      - celery_net
 
 volumes:
   postgres_data:
   minio_data:
+
+networks:
+  data_net:
+  ratelimit_net:
+  celery_net:

@@ -3,9 +3,9 @@ name = "classup-backend"
 version = "0.1.0"
 description = "Backend da aplicação ClassUp em FastAPI"
 authors = [
-    {name = "guibson",email = "guibson@centranet.com.br"}
+    {name = "Eduardo8006",email = "eduardoalves8006@gmail.com"}
 ]
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi (>=0.136.3,<0.137.0)",
     "uvicorn[standard] (>=0.48.0,<0.49.0)",
@@ -14,7 +14,11 @@ dependencies = [
     "pydantic-settings (>=2.14.1,<3.0.0)",
     "psycopg[binary] (>=3.3.4,<4.0.0)",
     "slowapi (>=0.1.9,<0.2.0)",
-    "redis (>=8.0.0,<9.0.0)"
+    # >=6.4 (não >=8): o kombu (transporte do Celery) ainda capa redis-py em
+    # <6.5; a interseção resolve para 6.4.x — a faixa testada pelo broker.
+    # Quando o kombu liberar 8.x, `poetry update redis` sobe sem editar isto.
+    "redis (>=6.4.0,<9.0.0)",
+    "celery[redis] (>=5.6,<6.0)"
 ]
 
 
@@ -76,6 +80,17 @@ plugins = ["pydantic.mypy"]
 # slowapi não distribui informações de tipo (py.typed).
 module = ["slowapi.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# celery não distribui informações de tipo (py.typed).
+module = ["celery.*", "celery"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# O decorator @celery_app.task não é tipado (celery sem py.typed);
+# em strict isso reprovaria toda task. Relaxa só neste módulo.
+module = ["app.worker"]
+disallow_untyped_decorators = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -208,6 +208,10 @@ def _prod_settings(**overrides: Any) -> Settings:
         "minio_root_password": "S3nhaForteMinio123",
         # Idem para o usuário: o guard recusa admin previsível em produção.
         "minio_root_user": "classup-svc-7f3a",
+        # Celery com senha forte e instância dedicada — o guard de produção
+        # barra os defaults de dev (senha fraca).
+        "celery_broker_url": "redis://:S3nhaForteCelery123@redis-celery:6379/0",
+        "celery_result_backend": "redis://:S3nhaForteCelery123@redis-celery:6379/1",
     }
     base.update(overrides)
     return Settings(**base)

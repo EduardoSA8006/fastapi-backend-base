@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     minio_root_password: str = "classup"  # noqa: S105
     minio_bucket: str = "classup-files"
 
+    # Celery — broker e result backend numa instância Redis DEDICADA
+    # (redis-celery), separada do Redis do rate-limit; em produção o guard
+    # recusa apontar os dois para a mesma instância. DB 0 = broker,
+    # DB 1 = resultados (keyspaces separados facilitam inspeção/limpeza).
+    celery_broker_url: str = "redis://:classup@redis-celery:6379/0"
+    celery_result_backend: str = "redis://:classup@redis-celery:6379/1"
+    # Execução síncrona in-process (sem broker) — só para testes.
+    celery_task_always_eager: bool = False
+
     @field_validator("environment")
     @classmethod
     def _validate_environment(cls, value: str) -> str:

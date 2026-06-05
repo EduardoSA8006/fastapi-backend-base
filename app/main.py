@@ -14,20 +14,16 @@ from app.core.config import Settings, get_settings
 from app.core.database import build_engine, build_session_factory
 from app.core.limiter import create_limiter, rate_limit_exceeded_handler
 from app.core.logging import configure_logging
+from app.core.security_guards import (
+    WEAK_MINIO_USERS,
+    WEAK_PASSWORDS,
+    validate_celery_security,
+)
 from app.middleware.body_size_limit import BodySizeLimitMiddleware
 from app.middleware.observability import RequestContextMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 
 logger = logging.getLogger("classup")
-
-# Senhas notoriamente fracas/default que não podem ir para produção.
-_WEAK_DB_PASSWORDS = {"classup", "postgres", "password", "changeme", "admin", ""}
-
-# Usuários admin previsíveis do MinIO. Diferente do banco (cujo usuário não é
-# segredo), o root do MinIO é a credencial de admin do storage; um nome óbvio
-# facilita enumeração caso a porta vaze. Defesa-em-profundidade sobre o
-# isolamento de rede.
-_WEAK_MINIO_USERS = {"classup", "minio", "admin", "root", "minioadmin", ""}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -66,12 +62,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Redis também é barrada. O Redis não fica exposto ao host, mas a
         # inconsistência não se justifica — e protege as chaves do rate-limit de
         # acesso/flush por um vizinho de rede comprometido. Cobre redis:// e
-        # rediss:// (TLS); senha ausente vira "" (presente em _WEAK_DB_PASSWORDS).
+        # rediss:// (TLS); senha ausente vira "" (presente em WEAK_PASSWORDS).
         if settings.rate_limit_enabled and settings.rate_limit_storage_uri.startswith(
             "redis"
         ):
             redis_password = urlparse(settings.rate_limit_storage_uri).password or ""
-            if redis_password in _WEAK_DB_PASSWORDS:
+            if redis_password in WEAK_PASSWORDS:
                 raise ValueError(
                     "Senha do Redis default/fraca (ou ausente) não é permitida em "
                     "produção. Use uma senha forte na RATE_LIMIT_STORAGE_URI "
@@ -81,7 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # do MinIO também é barrada. O storage não fica exposto ao host, mas a
         # inconsistência não se justifica — protege os objetos de acesso/flush
         # por um vizinho de rede comprometido.
-        if settings.minio_root_password in _WEAK_DB_PASSWORDS:
+        if settings.minio_root_password in WEAK_PASSWORDS:
             raise ValueError(
                 "Senha do MinIO default/fraca (ou ausente) não é permitida em "
                 "produção. Defina MINIO_ROOT_PASSWORD com uma senha forte."
@@ -89,7 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Defesa-em-profundidade: além da senha, o usuário admin do MinIO não
         # pode ser um nome óbvio em produção (a porta não fica exposta, mas um
         # root previsível encurta a enumeração se isso mudar).
-        if settings.minio_root_user.strip().lower() in _WEAK_MINIO_USERS:
+        if settings.minio_root_user.strip().lower() in WEAK_MINIO_USERS:
             raise ValueError(
                 "Usuário do MinIO default/previsível não é permitido em "
                 "produção. Defina MINIO_ROOT_USER com um nome não-óbvio."
@@ -98,11 +94,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # (SQLite não tem senha, então é ignorado).
         if not settings.database_url.startswith("sqlite"):
             db_password = make_url(settings.database_url).password or ""
-            if db_password in _WEAK_DB_PASSWORDS:
+            if db_password in WEAK_PASSWORDS:
                 raise ValueError(
                     "Senha de banco default/fraca não é permitida em produção. "
                     "Use uma senha forte na DATABASE_URL."
                 )
+        # Guards do Celery (broker/result backend): compartilhados com o
+        # worker (app.worker valida no import) — a API também valida porque
+        # despacha tasks (.delay()) e não deve subir apontando para um broker
+        # mal configurado.
+        validate_celery_security(settings)
         # Atrás de proxy reverso (cenário do deploy recomendado), sem trust_proxy
         # o IP de conexão é o do proxy — todos os clientes caem num único bucket
         # (rate-limit colapsado / auto-DoS). Avisa para o operador configurar.

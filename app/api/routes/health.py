@@ -49,7 +49,9 @@ def readiness(request: Request) -> JSONResponse:
     ):
         client = None
         try:
-            client = redis.from_url(
+            # type-ignore: redis-py 6.x (faixa exigida pelo kombu/Celery) não
+            # tipa from_url; remover quando o kombu liberar redis-py >= 8.
+            client = redis.from_url(  # type: ignore[no-untyped-call]
                 settings.rate_limit_storage_uri,
                 socket_connect_timeout=2,
                 socket_timeout=2,
