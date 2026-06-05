@@ -116,6 +116,11 @@ async def test_boundary_passa_direto_scope_nao_http() -> None:
 
     async def _inner(scope: object, receive: object, send: object) -> None:
         called["ok"] = True
+        # Identidade dos argumentos: o passthrough repassa EXATAMENTE o que
+        # recebeu (mutantes scope/receive/send -> None sobreviviam sem isto).
+        assert scope is expected_scope
+        assert receive is _receive
+        assert send is _send
 
     async def _receive() -> Message:
         return {"type": "lifespan.startup"}
@@ -123,5 +128,6 @@ async def test_boundary_passa_direto_scope_nao_http() -> None:
     async def _send(message: Message) -> None:
         pass
 
-    await ErrorBoundaryMiddleware(_inner)({"type": "lifespan"}, _receive, _send)
+    expected_scope = {"type": "lifespan"}
+    await ErrorBoundaryMiddleware(_inner)(expected_scope, _receive, _send)
     assert called == {"ok": True}

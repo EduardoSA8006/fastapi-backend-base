@@ -315,6 +315,16 @@ poetry run mypy .                # checagem de tipos (--strict)
 poetry run pip-audit             # auditoria de CVEs nas dependências
 ```
 
+Níveis de teste e métricas extras (Docker necessário p/ integração/e2e):
+
+```bash
+poetry run pytest                          # unitários (gate de cobertura 90%)
+poetry run pytest -m integration --no-cov  # infra real efêmera (testcontainers)
+poetry run pytest -m e2e --no-cov          # stack compose completo + httpx
+poetry run mutmut run && poetry run mutmut results  # mutation testing (métrica
+                                           # LOCAL, não é gate de CI — ver spec)
+```
+
 Todos esses passos rodam no CI (`.github/workflows/ci.yml`) em cada push/PR.
 
 ## Estrutura do projeto

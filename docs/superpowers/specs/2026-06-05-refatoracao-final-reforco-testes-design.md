@@ -80,6 +80,37 @@ healthy de novo). Custo aceito: e2e +~2min.
 - Mutation testing no CI.
 - Testes de carga reais.
 
-## Apêndice T2 — sobreviventes aceitos
+## Apêndice T2 — resultado e sobreviventes aceitos
 
-(Preenchido na execução.)
+Execução 2026-06-05 (mutmut 3.5, killer = suíte unitária com `--no-cov`):
+
+- **1041 mutantes | 705 mortos (67,7%) | 312 sobreviventes | 23 sem teste
+  | 1 timeout.** Primeira rodada: 659 mortos (63,3%); +46 mortos com os
+  testes derivados da análise (internals do storage com stub gravador,
+  /redoc + título do OpenAPI, identidade de argumentos nos passthroughs,
+  probes isentos de rate-limit em rajada).
+
+Categorias de sobreviventes ACEITAS (não são gaps de comportamento):
+1. **Texto de mensagens de erro/log** (`XX...XX`, mudança de caixa) — a
+   maior fatia (validate_production 54, celery 24, handlers ~50). Os testes
+   pinam via `match=` a parte DISCRIMINANTE da mensagem; pinar o texto
+   inteiro tornaria a suíte frágil sem ganho (wording não é comportamento).
+2. **Extras/formatos de linhas de log** (observability/storage/exceptions)
+   — campos de telemetria; o conteúdo discriminante (status, request_id,
+   nível) é assertado.
+3. **Args cosméticos do FastAPI** (`debug=None` etc.) — sem efeito
+   observável em teste.
+4. **`no tests` (23)**: `storage._get_client`/`_spec` — substituídos por
+   stub na suíte unitária por design; cobertos pela INTEGRAÇÃO (MinIO
+   real), que o mutmut não usa como killer.
+
+Limitações documentadas (config `[tool.mutmut]`):
+- `do_not_mutate`: `features/health/router.py` e `core/database.py` — o
+  trampolim do mutmut troca assinaturas que o FastAPI INTROSPECTA
+  (rotas/dependências), quebrando a injeção; cobertos pelos 3 níveis
+  normais.
+- `pytest_add_cli_args = ["--no-cov"]`: funções-mutante geradas nunca
+  executam e derrubariam o gate de cobertura.
+
+Comando (local, não é gate de CI): `poetry run mutmut run` +
+`poetry run mutmut results`.

@@ -77,6 +77,8 @@ extend-immutable-calls = [
 python_version = "3.11"
 strict = true
 files = ["app", "tests"]
+# mutants/ é a árvore de trabalho do mutmut (gitignored) — duplicaria "app".
+exclude = ["^mutants/"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
@@ -126,5 +128,12 @@ dev = [
 # Mutation testing — métrica LOCAL (não é gate de CI; ver README).
 # Mata-se mutantes com a suíte unitária (rápida); rodar:
 #   poetry run mutmut run && poetry run mutmut results
-paths_to_mutate = "app/"
-tests_dir = "tests/"
+paths_to_mutate = [ "app/" ]
+tests_dir = [ "tests/" ]
+# Funções com assinatura INTROSPECTADA pelo FastAPI (rotas e dependências):
+# o trampolim do mutmut troca a assinatura e quebra a injeção — exclui-se o
+# arquivo da mutação (limitação documentada; cobertos por testes normais).
+do_not_mutate = [ "app/features/health/router.py", "app/core/database.py" ]
+# Sem cobertura na execução dos mutantes: as funções-mutante geradas nunca
+# executam e derrubariam o gate de 90% mesmo com a suíte toda verde.
+pytest_add_cli_args = [ "--no-cov" ]

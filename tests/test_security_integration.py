@@ -419,3 +419,21 @@ def test_root_em_producao_nao_anuncia_docs() -> None:
     body = response.json()
     assert body["app"] == "Prod App"
     assert "docs" not in body  # produção não anuncia a documentação
+
+
+def test_redoc_e_titulo_do_openapi_em_dev() -> None:
+    # Pina o wiring do FastAPI no composition root (mutantes sobreviventes:
+    # redoc_url=None e title mutado passavam despercebidos).
+    client = make_client(app_name="ClassUp QA")
+    assert client.get("/redoc").status_code == 200
+    openapi = client.get("/openapi.json").json()
+    assert openapi["info"]["title"] == "ClassUp QA"
+
+
+def test_probes_sao_isentos_do_rate_limit() -> None:
+    # Garantia operacional direta: com limite de 1/min, os probes seguem 200
+    # em rajada (sem isso, orquestrador gastaria a cota e mataria a réplica).
+    client = make_client(rate_limit_default="1/minute")
+    for _ in range(5):
+        assert client.get("/api/v1/health").status_code == 200
+        assert client.get("/api/v1/ready").status_code == 200
