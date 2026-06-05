@@ -69,6 +69,32 @@ def test_handler_usa_detail_default_da_classe() -> None:
     assert response.json() == {"detail": NotFoundError.detail}
 
 
+def test_unavailable_e_logado_como_error(
+    caplog: Any,
+) -> None:
+    # Erros de domínio 4xx são silenciosos (ruído), mas 5xx (infra fora)
+    # precisam deixar rastro com a causa — senão o 503 aparece no access log
+    # sem explicação.
+    import logging
+
+    client = _client_with_raising_route(UnavailableError("MinIO fora do ar."))
+    with caplog.at_level(logging.ERROR, logger="classup.errors"):
+        client.get("/_boom")
+    records = [r for r in caplog.records if r.name == "classup.errors"]
+    assert records, "UnavailableError não foi logado"
+    assert "MinIO fora do ar." in records[0].getMessage()
+
+
+def test_not_found_nao_gera_log_de_erro(caplog: Any) -> None:
+    # 4xx de domínio é fluxo normal — não polui o log de erros.
+    import logging
+
+    client = _client_with_raising_route(NotFoundError("x"))
+    with caplog.at_level(logging.WARNING, logger="classup.errors"):
+        client.get("/_boom")
+    assert not [r for r in caplog.records if r.name == "classup.errors"]
+
+
 def test_resposta_de_erro_preserva_security_headers() -> None:
     # Mesma garantia dos 400/413/429: o handler roda DENTRO da pilha de
     # middleware, então as respostas de erro também saem blindadas.

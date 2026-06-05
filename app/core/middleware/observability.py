@@ -52,6 +52,9 @@ class RequestContextMiddleware:
                     incoming = candidate
                 break
         request_id = incoming or uuid4().hex
+        # Publica o id no scope (Request.state nos handlers; lido também pelo
+        # ErrorBoundary) — correlaciona qualquer log interno com a access line.
+        scope.setdefault("state", {})["request_id"] = request_id
 
         # IP é dado pessoal (LGPD/GDPR): só registra se habilitado.
         if self.log_client_ip:
@@ -82,22 +85,30 @@ class RequestContextMiddleware:
                 headers["X-Request-ID"] = request_id
             await send(message)
 
-        await self.app(scope, receive, send_with_request_id)
-
-        message = (
-            f"{method} {path} -> {status_code} id={request_id} client={client_host}"
-        )
-        # Campos estruturados (correlação em SIEM); o JsonFormatter os escapa.
-        extra = {
-            "method": method,
-            "path": path,
-            "status": status_code,
-            "request_id": request_id,
-            "client": client_host,
-        }
-        if status_code >= 500:
-            logger.error(message, extra=extra)
-        elif status_code >= 400:
-            logger.warning(message, extra=extra)
-        else:
-            logger.info(message, extra=extra)
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        except Exception:
+            # Crash que escapou da pilha (o ErrorBoundary cobre o miolo, mas
+            # não a si mesmo nem ao SecurityHeaders): a requisição NÃO pode
+            # sumir do access log — registra como 500 e propaga.
+            if status_code == 0:
+                status_code = 500
+            raise
+        finally:
+            message = (
+                f"{method} {path} -> {status_code} id={request_id} client={client_host}"
+            )
+            # Campos estruturados (correlação em SIEM); o JsonFormatter escapa.
+            extra = {
+                "method": method,
+                "path": path,
+                "status": status_code,
+                "request_id": request_id,
+                "client": client_host,
+            }
+            if status_code >= 500:
+                logger.error(message, extra=extra)
+            elif status_code >= 400:
+                logger.warning(message, extra=extra)
+            else:
+                logger.info(message, extra=extra)

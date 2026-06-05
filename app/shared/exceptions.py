@@ -11,8 +11,12 @@ saem com os security headers, como qualquer outra (mesma garantia dos
 400/413/429 já testada).
 """
 
+import logging
+
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse
+
+logger = logging.getLogger("classup.errors")
 
 
 class AppException(Exception):
@@ -62,6 +66,16 @@ async def app_exception_handler(request: Request, exc: Exception) -> JSONRespons
     # vazaria AttributeError — o fallback devolve 500 genérico sem internals.
     if not isinstance(exc, AppException):
         return JSONResponse({"detail": "Erro interno."}, status_code=500)
+    # 4xx de domínio é fluxo normal (não loga — ruído); 5xx é infra degradada
+    # e precisa deixar rastro com a causa, correlacionado pelo request_id.
+    # Nível ERROR — alinhado com o access log e o ErrorBoundary (status >= 500
+    # é ERROR em todos os loggers; alertas por nível não perdem o 503).
+    if exc.status_code >= 500:
+        request_id = getattr(request.state, "request_id", "-")
+        logger.error(
+            f"{type(exc).__name__} em {request.url.path}: {exc.detail} id={request_id}",
+            extra={"request_id": request_id, "path": request.url.path},
+        )
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 

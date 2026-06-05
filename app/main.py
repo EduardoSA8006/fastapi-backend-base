@@ -13,6 +13,7 @@ from app.core.database import build_engine, build_session_factory
 from app.core.limiter import create_limiter, rate_limit_exceeded_handler
 from app.core.logging import configure_logging
 from app.core.middleware.body_size_limit import BodySizeLimitMiddleware
+from app.core.middleware.error_boundary import ErrorBoundaryMiddleware
 from app.core.middleware.observability import RequestContextMiddleware
 from app.core.middleware.security_headers import SecurityHeadersMiddleware
 from app.core.security_guards import (
@@ -170,10 +171,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # entrada e por último na saída). RequestContext fica o mais externo (envolve
     # tudo: atribui X-Request-ID e loga o resultado final); SecurityHeaders logo
     # abaixo, para que TODAS as respostas — inclusive rejeições (400/413/429) —
-    # recebam os cabeçalhos de segurança.
+    # recebam os cabeçalhos de segurança. ErrorBoundary logo abaixo do
+    # SecurityHeaders: o 500 que ele gera nasce DENTRO da pilha e sai blindado
+    # (headers) e logado (access line) — em vez de escapar para o text/plain
+    # do ServerErrorMiddleware do Starlette.
     # Ordem de execução na entrada:
-    #   RequestContext -> SecurityHeaders -> TrustedHost -> CORS -> BodySize
-    #   -> SlowAPI -> app
+    #   RequestContext -> SecurityHeaders -> ErrorBoundary -> TrustedHost
+    #   -> CORS -> BodySize -> SlowAPI -> app
     if settings.rate_limit_enabled:
         app.add_middleware(SlowAPIMiddleware)
 
@@ -186,6 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=settings.cors_allow_headers,
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
+    app.add_middleware(ErrorBoundaryMiddleware)
     app.add_middleware(SecurityHeadersMiddleware, hsts_enabled=settings.hsts_enabled)
     app.add_middleware(
         RequestContextMiddleware,
