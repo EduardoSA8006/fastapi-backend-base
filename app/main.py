@@ -1,10 +1,6 @@
-import logging
-from urllib.parse import urlparse
-
 from fastapi import FastAPI, Request
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from sqlalchemy.engine import make_url
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -16,118 +12,25 @@ from app.core.middleware.body_size_limit import BodySizeLimitMiddleware
 from app.core.middleware.error_boundary import ErrorBoundaryMiddleware
 from app.core.middleware.observability import RequestContextMiddleware
 from app.core.middleware.security_headers import SecurityHeadersMiddleware
-from app.core.security_guards import (
-    WEAK_MINIO_USERS,
-    WEAK_PASSWORDS,
-    validate_celery_security,
-)
+from app.core.security_guards import validate_production, validate_universal
 from app.features.health import router as health
 from app.shared.exceptions import register_exception_handlers
 
-logger = logging.getLogger("classup")
-
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Cria e configura a instância da aplicação FastAPI."""
+    """Cria e configura a instância da aplicação FastAPI.
+
+    Composition root: SÓ compõe (guards → app → state → handlers →
+    middlewares → routers). A política de segurança vive em
+    core/security_guards — testável isoladamente.
+    """
     settings = settings or get_settings()
 
     configure_logging(settings.debug)
 
-    # Guard universal (vale em qualquer ambiente): CORS com credenciais + origem
-    # curinga reflete origens arbitrárias com credenciais — sempre inseguro.
-    if settings.cors_allow_credentials and "*" in settings.cors_allow_origins:
-        raise ValueError(
-            "cors_allow_credentials=True com cors_allow_origins=['*'] é "
-            "inseguro: reflete origens arbitrárias com credenciais."
-        )
-
-    # Guards que falham duro em produção (ENVIRONMENT=production).
-    if settings.is_production:
-        if settings.debug:
-            raise ValueError(
-                "DEBUG=true não é permitido em produção (vaza stack traces)."
-            )
-        if "*" in settings.trusted_hosts:
-            raise ValueError(
-                "trusted_hosts=['*'] em produção desativa a validação de Host. "
-                "Defina TRUSTED_HOSTS com os hosts reais."
-            )
-        if settings.rate_limit_enabled and settings.rate_limit_storage_uri.startswith(
-            "memory://"
-        ):
-            raise ValueError(
-                "Rate-limit em produção exige um store compartilhado "
-                "(redis://...), não memory://."
-            )
-        # Paridade com o guard do banco: senha default/fraca (ou ausente) no
-        # Redis também é barrada. O Redis não fica exposto ao host, mas a
-        # inconsistência não se justifica — e protege as chaves do rate-limit de
-        # acesso/flush por um vizinho de rede comprometido. Cobre redis:// e
-        # rediss:// (TLS); senha ausente vira "" (presente em WEAK_PASSWORDS).
-        if settings.rate_limit_enabled and settings.rate_limit_storage_uri.startswith(
-            "redis"
-        ):
-            redis_password = urlparse(settings.rate_limit_storage_uri).password or ""
-            if redis_password in WEAK_PASSWORDS:
-                raise ValueError(
-                    "Senha do Redis default/fraca (ou ausente) não é permitida em "
-                    "produção. Use uma senha forte na RATE_LIMIT_STORAGE_URI "
-                    "(redis://:SENHA@host:porta/db)."
-                )
-        # Paridade com os guards de banco/Redis: senha default/fraca (ou ausente)
-        # do MinIO também é barrada. O storage não fica exposto ao host, mas a
-        # inconsistência não se justifica — protege os objetos de acesso/flush
-        # por um vizinho de rede comprometido.
-        if settings.minio_root_password in WEAK_PASSWORDS:
-            raise ValueError(
-                "Senha do MinIO default/fraca (ou ausente) não é permitida em "
-                "produção. Defina MINIO_ROOT_PASSWORD com uma senha forte."
-            )
-        # Defesa-em-profundidade: além da senha, o usuário admin do MinIO não
-        # pode ser um nome óbvio em produção (a porta não fica exposta, mas um
-        # root previsível encurta a enumeração se isso mudar).
-        if settings.minio_root_user.strip().lower() in WEAK_MINIO_USERS:
-            raise ValueError(
-                "Usuário do MinIO default/previsível não é permitido em "
-                "produção. Defina MINIO_ROOT_USER com um nome não-óbvio."
-            )
-        # Credenciais default/fracas de banco não podem ir para produção
-        # (SQLite não tem senha, então é ignorado).
-        if not settings.database_url.startswith("sqlite"):
-            db_password = make_url(settings.database_url).password or ""
-            if db_password in WEAK_PASSWORDS:
-                raise ValueError(
-                    "Senha de banco default/fraca não é permitida em produção. "
-                    "Use uma senha forte na DATABASE_URL."
-                )
-        # Guards do Celery (broker/result backend): compartilhados com o
-        # worker (app.worker valida no import) — a API também valida porque
-        # despacha tasks (.delay()) e não deve subir apontando para um broker
-        # mal configurado.
-        validate_celery_security(settings)
-        # Atrás de proxy reverso (cenário do deploy recomendado), sem trust_proxy
-        # o IP de conexão é o do proxy — todos os clientes caem num único bucket
-        # (rate-limit colapsado / auto-DoS). Avisa para o operador configurar.
-        if settings.rate_limit_enabled and not settings.trust_proxy:
-            logger.warning(
-                "ENVIRONMENT=production com TRUST_PROXY=false: se houver proxy "
-                "reverso à frente, o rate-limit colapsa num único bucket (IP do "
-                "proxy). Defina TRUST_PROXY=true e NUM_TRUSTED_PROXIES corretamente."
-            )
-        # O risco simétrico: confiar no X-Forwarded-For sem proxy real à frente
-        # deixa o cliente forjar o IP (cada requisição num bucket novo → rate-limit
-        # inútil). A app não tem como detectar a topologia de rede com segurança,
-        # então não falha o boot (TRUST_PROXY=true é legítimo atrás de LB); avisa
-        # de forma explícita para o operador confirmar a exposição.
-        elif settings.rate_limit_enabled and settings.trust_proxy:
-            logger.warning(
-                "ENVIRONMENT=production com TRUST_PROXY=true: confiar no "
-                "X-Forwarded-For só é seguro atrás de EXATAMENTE "
-                f"NUM_TRUSTED_PROXIES={settings.num_trusted_proxies} proxy(ies) "
-                "reverso(s) que reescrevem o header. Se a app estiver exposta "
-                "diretamente, o cliente forja o IP e burla o rate-limit. Confirme "
-                "a topologia de rede."
-            )
+    # Guards fail-closed: universais + os de produção (no-op fora dela).
+    validate_universal(settings)
+    validate_production(settings)
 
     # Documentação interativa só fora de produção (não expõe a superfície da API).
     docs_enabled = not settings.is_production
