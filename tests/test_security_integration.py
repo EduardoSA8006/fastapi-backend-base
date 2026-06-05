@@ -1,45 +1,20 @@
 import logging
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
-
-
-def _client(**overrides: Any) -> TestClient:
-    base: dict[str, Any] = {
-        "rate_limit_storage_uri": "memory://",
-        "trusted_hosts": ["testserver"],
-    }
-    base.update(overrides)
-    return TestClient(create_app(Settings(**base)))
-
-
-def _rl_client(*, raise_server_exceptions: bool = True, **overrides: Any) -> TestClient:
-    """Cliente com uma rota neutra `/_rl` NÃO isenta do rate-limit.
-
-    Os probes (/health, /ready) são isentos e a rota "/" só existe no `app` de
-    módulo (não em apps de create_app), então os testes de rate-limit precisam
-    de um endpoint próprio para exercitar o limite.
-    """
-    base: dict[str, Any] = {
-        "rate_limit_storage_uri": "memory://",
-        "trusted_hosts": ["testserver"],
-    }
-    base.update(overrides)
-    app = create_app(Settings(**base))
-
-    @app.get("/_rl")
-    def _rl() -> dict[str, bool]:
-        return {"ok": True}
-
-    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
+from tests.conftest import (
+    STRONG_REDIS_URI,
+    make_client,
+    make_prod_settings,
+    make_rl_client,
+)
 
 
 def test_security_headers_on_real_app() -> None:
-    client = _client()
+    client = make_client()
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -49,7 +24,7 @@ def test_security_headers_on_real_app() -> None:
 
 
 def test_rate_limit_returns_429_when_exceeded() -> None:
-    client = _rl_client(rate_limit_default="3/minute")
+    client = make_rl_client(rate_limit_default="3/minute")
     codes = [client.get("/_rl").status_code for _ in range(4)]
     assert codes[:3] == [200, 200, 200]
     assert codes[3] == 429
@@ -64,7 +39,7 @@ def test_rate_limit_fail_closed_when_store_unavailable() -> None:
     # fail-closed (500), não fail-open. Regressão contra mudança acidental de
     # swallow_errors / in_memory_fallback. Porta 6399 não tem Redis -> connection
     # refused (rápido); socket_connect_timeout=2 é apenas o teto.
-    client = _rl_client(
+    client = make_rl_client(
         raise_server_exceptions=False,
         rate_limit_enabled=True,
         rate_limit_default="100/minute",
@@ -75,13 +50,13 @@ def test_rate_limit_fail_closed_when_store_unavailable() -> None:
 
 
 def test_rate_limit_disabled_allows_all() -> None:
-    client = _client(rate_limit_enabled=False, rate_limit_default="1/minute")
+    client = make_client(rate_limit_enabled=False, rate_limit_default="1/minute")
     codes = [client.get("/api/v1/health").status_code for _ in range(5)]
     assert codes == [200, 200, 200, 200, 200]
 
 
 def test_body_size_limit_rejects_large_payload() -> None:
-    client = _client(max_body_size=10)
+    client = make_client(max_body_size=10)
     response = client.post("/api/v1/health", content=b"x" * 50)
     assert response.status_code == 413
 
@@ -94,13 +69,13 @@ def test_body_size_limit_rejects_chunked_payload_on_unread_endpoint() -> None:
     def gen() -> Iterator[bytes]:
         yield b"x" * 50
 
-    client = _client(max_body_size=10)
+    client = make_client(max_body_size=10)
     response = client.post("/api/v1/health", content=gen())
     assert response.status_code == 413
 
 
 def test_trusted_host_rejects_unknown_host() -> None:
-    client = _client(trusted_hosts=["example.com"])
+    client = make_client(trusted_hosts=["example.com"])
     response = client.get("/api/v1/health")
     assert response.status_code == 400
 
@@ -109,7 +84,7 @@ def test_healthcheck_host_must_be_trusted() -> None:
     # Contrato do healthcheck (achado 7): com TRUSTED_HOSTS restrito, o probe
     # precisa enviar HEALTHCHECK_HOST com um host permitido. Um host permitido
     # passa; o loopback (fora da lista) é rejeitado — por isso HEALTHCHECK_HOST.
-    client = _client(trusted_hosts=["api.classup.com"])
+    client = make_client(trusted_hosts=["api.classup.com"])
     assert (
         client.get("/api/v1/health", headers={"host": "api.classup.com"}).status_code
         == 200
@@ -120,7 +95,7 @@ def test_healthcheck_host_must_be_trusted() -> None:
 
 
 def test_cors_preflight_allows_configured_origin() -> None:
-    client = _client(cors_allow_origins=["http://allowed.test"])
+    client = make_client(cors_allow_origins=["http://allowed.test"])
     response = client.options(
         "/api/v1/health",
         headers={
@@ -132,14 +107,14 @@ def test_cors_preflight_allows_configured_origin() -> None:
 
 
 def test_docs_renders_without_csp() -> None:
-    client = _client()
+    client = make_client()
     response = client.get("/docs")
     assert response.status_code == 200
     assert "Content-Security-Policy" not in response.headers
 
 
 def test_security_headers_present_on_413() -> None:
-    client = _client(max_body_size=10)
+    client = make_client(max_body_size=10)
     response = client.post("/api/v1/health", content=b"x" * 50)
     assert response.status_code == 413
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
@@ -148,7 +123,7 @@ def test_security_headers_present_on_413() -> None:
 
 def test_security_headers_present_on_429() -> None:
     # /_rl (não isento) para forçar o 429; os probes não passam pelo rate-limit.
-    client = _rl_client(rate_limit_default="1/minute")
+    client = make_rl_client(rate_limit_default="1/minute")
     client.get("/_rl")
     response = client.get("/_rl")
     assert response.status_code == 429
@@ -156,7 +131,7 @@ def test_security_headers_present_on_429() -> None:
 
 
 def test_security_headers_present_on_400_bad_host() -> None:
-    client = _client(trusted_hosts=["example.com"])
+    client = make_client(trusted_hosts=["example.com"])
     response = client.get("/api/v1/health")
     assert response.status_code == 400
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
@@ -183,7 +158,7 @@ def test_spoofed_xff_ignored_when_proxy_untrusted() -> None:
     # Com trust_proxy=False (padrão), X-Forwarded-For forjado é ignorado:
     # todas as requisições compartilham o bucket do IP da conexão, então o
     # rate-limit dispara mesmo variando o cabeçalho — não dá para burlar.
-    client = _rl_client(rate_limit_default="2/minute", trust_proxy=False)
+    client = make_rl_client(rate_limit_default="2/minute", trust_proxy=False)
     r1 = client.get("/_rl", headers={"X-Forwarded-For": "1.1.1.1"})
     r2 = client.get("/_rl", headers={"X-Forwarded-For": "2.2.2.2"})
     r3 = client.get("/_rl", headers={"X-Forwarded-For": "3.3.3.3"})
@@ -195,32 +170,11 @@ def test_spoofed_xff_ignored_when_proxy_untrusted() -> None:
 # --- Guards de produção (ENVIRONMENT=production) ---
 
 
-def _prod_settings(**overrides: Any) -> Settings:
-    base: dict[str, Any] = {
-        "environment": "production",
-        "debug": False,
-        "trusted_hosts": ["api.test"],
-        "rate_limit_enabled": False,  # evita exigir redis nestes testes
-        "rate_limit_storage_uri": "memory://",
-        # Senha forte de MinIO por padrão — o guard de produção barra a default,
-        # então os demais testes de produção precisam de uma válida para subir.
-        "minio_root_password": "S3nhaForteMinio123",
-        # Idem para o usuário: o guard recusa admin previsível em produção.
-        "minio_root_user": "classup-svc-7f3a",
-        # Celery com senha forte e instância dedicada — o guard de produção
-        # barra os defaults de dev (senha fraca).
-        "celery_broker_url": "redis://:S3nhaForteCelery123@redis-celery:6379/0",
-        "celery_result_backend": "redis://:S3nhaForteCelery123@redis-celery:6379/1",
-    }
-    base.update(overrides)
-    return Settings(**base)
-
-
 def test_production_rejects_wildcard_trusted_hosts() -> None:
     import pytest
 
     with pytest.raises(ValueError, match="trusted_hosts"):
-        create_app(_prod_settings(trusted_hosts=["*"]))
+        create_app(make_prod_settings(trusted_hosts=["*"]))
 
 
 def test_production_rejects_memory_rate_limit_store() -> None:
@@ -228,7 +182,9 @@ def test_production_rejects_memory_rate_limit_store() -> None:
 
     with pytest.raises(ValueError, match="store compartilhado"):
         create_app(
-            _prod_settings(rate_limit_enabled=True, rate_limit_storage_uri="memory://")
+            make_prod_settings(
+                rate_limit_enabled=True, rate_limit_storage_uri="memory://"
+            )
         )
 
 
@@ -236,11 +192,11 @@ def test_production_rejects_debug_true() -> None:
     import pytest
 
     with pytest.raises(ValueError, match="DEBUG"):
-        create_app(_prod_settings(debug=True))
+        create_app(make_prod_settings(debug=True))
 
 
 def test_production_disables_docs() -> None:
-    client = TestClient(create_app(_prod_settings()))
+    client = TestClient(create_app(make_prod_settings()))
     # O Host precisa ser permitido para chegar à rota.
     headers = {"host": "api.test"}
     assert client.get("/docs", headers=headers).status_code == 404
@@ -248,17 +204,12 @@ def test_production_disables_docs() -> None:
     assert client.get("/api/v1/health", headers=headers).status_code == 200
 
 
-# URL de Redis com senha forte, para os testes de produção que precisam de um
-# store válido (o guard de produção barra Redis sem senha / com senha fraca).
-_STRONG_REDIS_URI = "redis://:S3nhaForteRedis123@redis:6379/0"
-
-
 def test_production_valid_config_boots() -> None:
     # Configuração de produção válida (redis + hosts reais + sem debug) sobe.
     app = create_app(
-        _prod_settings(
+        make_prod_settings(
             rate_limit_enabled=True,
-            rate_limit_storage_uri=_STRONG_REDIS_URI,
+            rate_limit_storage_uri=STRONG_REDIS_URI,
         )
     )
     assert app is not None
@@ -267,7 +218,7 @@ def test_production_valid_config_boots() -> None:
 def test_production_rejects_weak_redis_password() -> None:
     with pytest.raises(ValueError, match="Redis"):
         create_app(
-            _prod_settings(
+            make_prod_settings(
                 rate_limit_enabled=True,
                 rate_limit_storage_uri="redis://:classup@redis:6379/0",
             )
@@ -278,7 +229,7 @@ def test_production_rejects_redis_without_password() -> None:
     # Senha ausente (URL sem credencial) também é barrada — paridade com o banco.
     with pytest.raises(ValueError, match="Redis"):
         create_app(
-            _prod_settings(
+            make_prod_settings(
                 rate_limit_enabled=True,
                 rate_limit_storage_uri="redis://redis:6379/0",
             )
@@ -288,7 +239,7 @@ def test_production_rejects_redis_without_password() -> None:
 def test_production_rejects_weak_db_password() -> None:
     with pytest.raises(ValueError, match="fraca"):
         create_app(
-            _prod_settings(
+            make_prod_settings(
                 database_url="postgresql+psycopg://classup:classup@db:5432/classup"
             )
         )
@@ -296,7 +247,7 @@ def test_production_rejects_weak_db_password() -> None:
 
 def test_production_accepts_strong_db_password() -> None:
     app = create_app(
-        _prod_settings(
+        make_prod_settings(
             database_url=(
                 "postgresql+psycopg://classup:S3nhaForteAleatoria123@db:5432/classup"
             )
@@ -310,9 +261,9 @@ def test_production_without_trust_proxy_warns(
 ) -> None:
     with caplog.at_level(logging.WARNING, logger="classup"):
         create_app(
-            _prod_settings(
+            make_prod_settings(
                 rate_limit_enabled=True,
-                rate_limit_storage_uri=_STRONG_REDIS_URI,
+                rate_limit_storage_uri=STRONG_REDIS_URI,
                 trust_proxy=False,
             )
         )
@@ -326,9 +277,9 @@ def test_production_with_trust_proxy_warns(
     # Não falha o boot (config legítima atrás de LB), mas avisa explicitamente.
     with caplog.at_level(logging.WARNING, logger="classup"):
         create_app(
-            _prod_settings(
+            make_prod_settings(
                 rate_limit_enabled=True,
-                rate_limit_storage_uri=_STRONG_REDIS_URI,
+                rate_limit_storage_uri=STRONG_REDIS_URI,
                 trust_proxy=True,
             )
         )
@@ -343,18 +294,18 @@ def test_production_rejects_weak_minio_password(weak: str) -> None:
     # Paridade com Redis/DB: senha default/fraca do MinIO não pode ir a produção.
     # Inclui o default de dev "classup-minio-dev" (público no repositório).
     with pytest.raises(ValueError, match="MinIO"):
-        create_app(_prod_settings(minio_root_password=weak))
+        create_app(make_prod_settings(minio_root_password=weak))
 
 
 def test_production_rejects_minio_without_password() -> None:
     # Senha ausente (vazia) também é barrada — paridade com o banco/Redis.
     with pytest.raises(ValueError, match="MinIO"):
-        create_app(_prod_settings(minio_root_password=""))
+        create_app(make_prod_settings(minio_root_password=""))
 
 
 def test_production_accepts_strong_minio_password() -> None:
     # Senha forte de MinIO passa pelo guard (configuração de produção válida).
-    app = create_app(_prod_settings(minio_root_password="OutraS3nhaForte456"))
+    app = create_app(make_prod_settings(minio_root_password="OutraS3nhaForte456"))
     assert app is not None
 
 
@@ -363,12 +314,12 @@ def test_production_rejects_predictable_minio_user(weak_user: str) -> None:
     # Defesa-em-profundidade: usuário admin previsível do MinIO não vai a
     # produção (facilita enumeração se a porta vazar). Senha forte na base.
     with pytest.raises(ValueError, match="MinIO"):
-        create_app(_prod_settings(minio_root_user=weak_user))
+        create_app(make_prod_settings(minio_root_user=weak_user))
 
 
 def test_production_accepts_non_obvious_minio_user() -> None:
     # Usuário não-óbvio (e senha forte) passa pelo guard.
-    app = create_app(_prod_settings(minio_root_user="classup-svc-9b2c"))
+    app = create_app(make_prod_settings(minio_root_user="classup-svc-9b2c"))
     assert app is not None
 
 
@@ -437,14 +388,14 @@ def test_environment_normalized_and_is_production(
 def test_root_existe_em_apps_de_create_app_e_usa_settings_injetado() -> None:
     # A rota "/" pertence ao composition root: todo app de create_app a tem,
     # lendo app.state.settings — não o get_settings() global cacheado.
-    client = _client(app_name="App Injetado")
+    client = make_client(app_name="App Injetado")
     response = client.get("/")
     assert response.status_code == 200
     assert response.json()["app"] == "App Injetado"
 
 
 def test_root_em_producao_nao_anuncia_docs() -> None:
-    client = TestClient(create_app(_prod_settings(app_name="Prod App")))
+    client = TestClient(create_app(make_prod_settings(app_name="Prod App")))
     response = client.get("/", headers={"host": "api.test"})
     assert response.status_code == 200
     body = response.json()

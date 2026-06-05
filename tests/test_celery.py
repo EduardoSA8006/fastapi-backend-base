@@ -11,14 +11,16 @@ _STRONG_BACKEND = "redis://:S3nhaForteCelery123@redis-celery:6379/1"
 
 
 def _prod(**overrides: Any) -> Settings:
+    # Baseline compartilhado + rate-limit em Redis forte (o guard de
+    # separação de instâncias compara broker vs rate_limit_storage_uri).
+    from tests.conftest import STRONG_REDIS_URI, make_prod_settings
+
     base: dict[str, Any] = {
-        "environment": "production",
-        "celery_broker_url": _STRONG_BROKER,
-        "celery_result_backend": _STRONG_BACKEND,
-        "rate_limit_storage_uri": "redis://:S3nhaForteRedis123@redis:6379/0",
+        "rate_limit_enabled": True,
+        "rate_limit_storage_uri": STRONG_REDIS_URI,
     }
     base.update(overrides)
-    return Settings(**base)
+    return make_prod_settings(**base)
 
 
 # --- validate_celery_security: fail-closed em produção ---

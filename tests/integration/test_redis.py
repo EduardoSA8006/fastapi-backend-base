@@ -10,11 +10,10 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from testcontainers.core.container import DockerContainer
-from testcontainers.core.waiting_utils import wait_for_logs
 
 from app.core.config import Settings
 from app.main import create_app
+from tests.integration.conftest import redis_container
 
 pytestmark = pytest.mark.integration
 
@@ -24,16 +23,8 @@ _PASSWORD = "S3nhaTesteRedis123"
 @pytest.fixture(scope="module")
 def redis_url() -> Iterator[str]:
     # Com --requirepass, como o compose: exercita autenticação de verdade.
-    container = (
-        DockerContainer("redis:7-alpine")
-        .with_command(f"redis-server --requirepass {_PASSWORD}")
-        .with_exposed_ports(6379)
-    )
-    with container:
-        wait_for_logs(container, "Ready to accept connections", timeout=30)
-        host = container.get_container_host_ip()
-        port = container.get_exposed_port(6379)
-        yield f"redis://:{_PASSWORD}@{host}:{port}/0"
+    with redis_container(_PASSWORD) as base:
+        yield f"{base}/0"
 
 
 def _client(redis_url: str, **overrides: Any) -> TestClient:

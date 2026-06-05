@@ -9,8 +9,8 @@ consumida por um worker embutido e resultado lido do result backend.
 from collections.abc import Iterator
 
 import pytest
-from testcontainers.core.container import DockerContainer
-from testcontainers.core.waiting_utils import wait_for_logs
+
+from tests.integration.conftest import redis_container
 
 pytestmark = pytest.mark.integration
 
@@ -19,16 +19,8 @@ _PASSWORD = "S3nhaTesteCelery123"
 
 @pytest.fixture(scope="module")
 def broker_base() -> Iterator[str]:
-    container = (
-        DockerContainer("redis:7-alpine")
-        .with_command(f"redis-server --requirepass {_PASSWORD}")
-        .with_exposed_ports(6379)
-    )
-    with container:
-        wait_for_logs(container, "Ready to accept connections", timeout=30)
-        host = container.get_container_host_ip()
-        port = container.get_exposed_port(6379)
-        yield f"redis://:{_PASSWORD}@{host}:{port}"
+    with redis_container(_PASSWORD) as base:
+        yield base
 
 
 def test_ping_round_trip_pelo_broker_real(broker_base: str) -> None:

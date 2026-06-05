@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 import redis as redis_lib
-from testcontainers.core.container import DockerContainer
-from testcontainers.core.waiting_utils import wait_for_logs
+
+from tests.integration.conftest import redis_container
 
 pytestmark = pytest.mark.integration
 
@@ -25,16 +25,8 @@ _PASSWORD = "S3nhaTesteBeat123"
 
 @pytest.fixture(scope="module")
 def broker_base() -> Iterator[str]:
-    container = (
-        DockerContainer("redis:7-alpine")
-        .with_command(f"redis-server --requirepass {_PASSWORD}")
-        .with_exposed_ports(6379)
-    )
-    with container:
-        wait_for_logs(container, "Ready to accept connections", timeout=30)
-        host = container.get_container_host_ip()
-        port = container.get_exposed_port(6379)
-        yield f"redis://:{_PASSWORD}@{host}:{port}"
+    with redis_container(_PASSWORD) as base:
+        yield base
 
 
 def test_beat_dispara_heartbeat_e_worker_executa(

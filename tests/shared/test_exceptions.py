@@ -2,7 +2,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
 from app.main import create_app
 from app.shared.exceptions import (
     AppException,
@@ -14,12 +13,9 @@ from app.shared.exceptions import (
 
 def _client_with_raising_route(exc: AppException, **overrides: Any) -> TestClient:
     """App real (create_app) com uma rota que levanta a exceção dada."""
-    base: dict[str, Any] = {
-        "rate_limit_storage_uri": "memory://",
-        "trusted_hosts": ["testserver"],
-    }
-    base.update(overrides)
-    app = create_app(Settings(**base))
+    from tests.conftest import make_settings
+
+    app = create_app(make_settings(**overrides))
 
     @app.get("/_boom")
     def _boom() -> None:
