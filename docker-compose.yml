@@ -114,7 +114,7 @@ services:
       # H3: senha em env é visível via `docker inspect`/proc — ok neste stack de
       # dev. Em PRODUÇÃO, prefira Docker secrets (/run/secrets) ou um secrets
       # manager. O boot da API é recusado com senha default/fraca em produção.
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup-minio-dev}
     # Sem `ports:` — o MinIO NÃO é exposto ao host. Acessível apenas pela rede
     # interna do Docker (pelo serviço `api`), via o hostname `minio`. Só a porta
     # da API S3 (9000) fica visível na rede interna; o console (9001) não.
@@ -183,7 +183,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_USE_SSL: "false"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup-minio-dev}
       MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}
       # Celery: a api só DESPACHA tasks (.delay()) — broker/result backend na
       # instância dedicada (redis-celery), separada do Redis do rate-limit.
@@ -253,7 +253,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_USE_SSL: "false"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup-minio-dev}
       MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}
     healthcheck:
       # Processo vivo ≠ worker funcional: `inspect ping` faz round-trip real

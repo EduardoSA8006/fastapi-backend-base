@@ -11,7 +11,17 @@ from urllib.parse import urlparse
 from app.core.config import Settings
 
 # Senhas notoriamente fracas/default que não podem ir para produção.
-WEAK_PASSWORDS = {"classup", "postgres", "password", "changeme", "admin", ""}
+# "classup-minio-dev" é o default de dev do MinIO (que exige >= 8 chars) —
+# por ser público no repositório, é tão fraco quanto "classup".
+WEAK_PASSWORDS = {
+    "classup",
+    "classup-minio-dev",
+    "postgres",
+    "password",
+    "changeme",
+    "admin",
+    "",
+}
 
 # Usuários admin previsíveis do MinIO. Diferente do banco (cujo usuário não é
 # segredo), o root do MinIO é a credencial de admin do storage; um nome óbvio

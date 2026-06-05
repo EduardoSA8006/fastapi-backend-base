@@ -54,9 +54,11 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Testes podem usar assert (S101) e credenciais literais de fixture (S106) —
-# senhas de teste embutidas são intencionais (exercitam os guards de produção).
-"tests/**" = ["S101", "S106"]
+# Testes podem usar assert (S101) e credenciais literais de fixture (S105/
+# S106) — senhas de teste embutidas são intencionais (exercitam guards e
+# containers efêmeros). S603: subprocess nos testes de integração/e2e roda
+# comandos fixos (docker/alembic), sem entrada não confiável.
+"tests/**" = ["S101", "S105", "S106", "S603"]
 
 [tool.ruff.lint.flake8-bugbear]
 # Padrão do FastAPI: chamadas em defaults de argumentos (injeção de dependência).
@@ -82,8 +84,8 @@ module = ["slowapi.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# celery não distribui informações de tipo (py.typed).
-module = ["celery.*", "celery"]
+# celery e testcontainers não distribuem informações de tipo (py.typed).
+module = ["celery.*", "celery", "testcontainers.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -95,7 +97,15 @@ disallow_untyped_decorators = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--cov=app --cov-report=term-missing --cov-fail-under=90"
+# Default = suíte unitária rápida (gate de cobertura). Integração/e2e exigem
+# Docker e rodam sob demanda:
+#   poetry run pytest -m integration --no-cov
+#   poetry run pytest -m e2e --no-cov
+addopts = '--cov=app --cov-report=term-missing --cov-fail-under=90 -m "not integration and not e2e"'
+markers = [
+    "integration: exige Docker — infra real efêmera via testcontainers",
+    "e2e: exige Docker — sobe o stack compose isolado (classup-e2e) e ataca de fora com httpx",
+]
 
 [dependency-groups]
 dev = [
@@ -105,5 +115,6 @@ dev = [
     "ruff (>=0.15.15,<0.16.0)",
     "pip-audit (>=2.10.0,<3.0.0)",
     "mypy (>=2.1.0,<3.0.0)",
-    "pytest-cov (>=7.1.0,<8.0.0)"
+    "pytest-cov (>=7.1.0,<8.0.0)",
+    "testcontainers (>=4.14.2,<5.0.0)"
 ]

@@ -67,9 +67,10 @@ class Settings(BaseSettings):
     minio_endpoint: str = "minio:9000"
     minio_use_ssl: bool = False
     minio_root_user: str = "classup"
-    # Default dev (espelha ${MINIO_ROOT_PASSWORD:-classup} do compose); o guard
-    # de produção em main.py recusa este valor fraco. noqa: não é segredo real.
-    minio_root_password: str = "classup"  # noqa: S105
+    # Default dev (espelha o compose). O MinIO RECUSA senhas < 8 caracteres
+    # (por isso não é "classup"); o guard de produção recusa este valor por
+    # estar em WEAK_PASSWORDS. noqa: não é segredo real.
+    minio_root_password: str = "classup-minio-dev"  # noqa: S105
     minio_bucket: str = "classup-files"
 
     # Celery — broker e result backend numa instância Redis DEDICADA

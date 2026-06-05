@@ -339,12 +339,12 @@ def test_production_with_trust_proxy_warns(
 # --- Guard de produção do MinIO (senha do storage) ---
 
 
-def test_production_rejects_weak_minio_password() -> None:
+@pytest.mark.parametrize("weak", ["classup", "classup-minio-dev"])
+def test_production_rejects_weak_minio_password(weak: str) -> None:
     # Paridade com Redis/DB: senha default/fraca do MinIO não pode ir a produção.
-    # O storage não fica exposto ao host, mas a inconsistência não se justifica —
-    # protege os objetos de acesso/flush por um vizinho de rede comprometido.
+    # Inclui o default de dev "classup-minio-dev" (público no repositório).
     with pytest.raises(ValueError, match="MinIO"):
-        create_app(_prod_settings(minio_root_password="classup"))
+        create_app(_prod_settings(minio_root_password=weak))
 
 
 def test_production_rejects_minio_without_password() -> None:
