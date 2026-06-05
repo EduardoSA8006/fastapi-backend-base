@@ -55,16 +55,20 @@ def test_sem_trust_proxy_o_header_e_irrelevante(
 @given(
     forwarded=st.text(max_size=512),
     connection_ip=st.text(min_size=1, max_size=64),
+    hops=st.integers(min_value=1, max_value=5),
 )
 def test_com_trust_o_resultado_vem_do_header_ou_da_conexao(
-    forwarded: str, connection_ip: str
+    forwarded: str, connection_ip: str, hops: int
 ) -> None:
     # O resultado é sempre uma entrada do header (strip) ou o IP da conexão —
-    # nunca um valor inventado/concatenado.
-    result = resolve_client_ip(forwarded, connection_ip, True, 1)
-    valid = {p.strip() for p in forwarded.split(",") if p.strip()}
-    valid.add(connection_ip)
-    assert result in valid
+    # nunca um valor inventado/concatenado. Com hops variável: entradas
+    # INSUFICIENTES para os saltos => cai no IP da conexão (seguro).
+    result = resolve_client_ip(forwarded, connection_ip, True, hops)
+    parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+    if len(parts) >= hops:
+        assert result == parts[-hops]
+    else:
+        assert result == connection_ip
 
 
 # --- X-Request-ID: regex anti log-injection ---

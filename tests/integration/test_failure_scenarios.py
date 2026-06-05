@@ -38,17 +38,24 @@ def _redis_on_port(port: int) -> DockerContainer:
 def test_rate_limit_fail_closed_quando_redis_cai_no_meio() -> None:
     # Transição viva: rate-limit funcionando -> Redis morre -> fail-closed
     # (500 padronizado, não fail-open) e /ready reporta o store degradado.
-    port = _free_port()
-    container = _redis_on_port(port)
+    # Porta aleatória do Docker (sem TOCTOU) — porta fixa só é necessária no
+    # teste de recuperação, onde "voltar na MESMA porta" é a semântica.
+    container = (
+        DockerContainer("redis:7-alpine")
+        .with_command(f"redis-server --requirepass {_PASSWORD}")
+        .with_exposed_ports(6379)
+    )
     container.start()
     stopped = False
     try:
         wait_for_logs(container, "Ready to accept connections", timeout=30)
+        host = container.get_container_host_ip()
+        port = container.get_exposed_port(6379)
         app = create_app(
             make_settings(
                 rate_limit_enabled=True,
                 rate_limit_default="100/minute",
-                rate_limit_storage_uri=f"redis://:{_PASSWORD}@127.0.0.1:{port}/0",
+                rate_limit_storage_uri=f"redis://:{_PASSWORD}@{host}:{port}/0",
                 readiness_cache_seconds=0.0,
             )
         )
