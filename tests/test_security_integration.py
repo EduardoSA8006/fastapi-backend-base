@@ -430,3 +430,24 @@ def test_environment_normalized_and_is_production(
     settings = Settings(environment=raw)
     assert settings.environment == raw.strip().lower()
     assert settings.is_production is expected_prod
+
+
+# --- Rota raiz respeita o Settings injetado (não o cache global) ---
+
+
+def test_root_existe_em_apps_de_create_app_e_usa_settings_injetado() -> None:
+    # A rota "/" pertence ao composition root: todo app de create_app a tem,
+    # lendo app.state.settings — não o get_settings() global cacheado.
+    client = _client(app_name="App Injetado")
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json()["app"] == "App Injetado"
+
+
+def test_root_em_producao_nao_anuncia_docs() -> None:
+    client = TestClient(create_app(_prod_settings(app_name="Prod App")))
+    response = client.get("/", headers={"host": "api.test"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["app"] == "Prod App"
+    assert "docs" not in body  # produção não anuncia a documentação

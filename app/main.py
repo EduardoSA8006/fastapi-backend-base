@@ -1,7 +1,7 @@
 import logging
 from urllib.parse import urlparse
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.engine import make_url
@@ -202,18 +202,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Feature-first: cada feature expõe seu router e o composition root os
     # inclui aqui, sob o prefixo da API. (Sem agregador intermediário.)
     app.include_router(health.router, prefix=settings.api_v1_prefix)
+
+    @app.get("/")
+    def root(request: Request) -> dict[str, str]:
+        """Rota raiz com informações básicas da API.
+
+        Lê request.app.state.settings (não o get_settings() global cacheado):
+        como toda rota, respeita o Settings injetado deste app — e, definida
+        no composition root, existe em qualquer app de create_app, não só no
+        singleton de módulo.
+        """
+        app_settings: Settings = request.app.state.settings
+        body = {"app": app_settings.app_name}
+        # Não anuncia /docs em produção (lá a documentação está desligada).
+        if not app_settings.is_production:
+            body["docs"] = "/docs"
+        return body
+
     return app
 
 
 app = create_app()
-
-
-@app.get("/")
-def root() -> dict[str, str]:
-    """Rota raiz com informações básicas da API."""
-    settings = get_settings()
-    body = {"app": settings.app_name}
-    # Não anuncia /docs em produção (lá a documentação está desligada).
-    if not settings.is_production:
-        body["docs"] = "/docs"
-    return body
