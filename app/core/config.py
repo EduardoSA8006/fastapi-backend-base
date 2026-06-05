@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     # Permite desligar o registro do IP nos logs de acesso.
     log_client_ip: bool = True
 
+    # TTL (s) do cache do /ready. O probe é isento de rate-limit e sem auth;
+    # sem cache, cada chamada faz SELECT 1 + PING — um amplificador de carga
+    # não-autenticado contra banco/Redis se o path vazar para a borda. Com o
+    # TTL, rajadas custam <= 1 round-trip de backend por janela. 0 desliga
+    # (testes de queda imediata). Mantém o probe SEM rate-limit de propósito:
+    # re-sujeitá-lo trocaria o 503 granular por um 500 opaco com o store fora.
+    readiness_cache_seconds: float = 3.0
+
     # MinIO (armazenamento de objetos) — roda na rede interna do Docker, SEM
     # porta publicada (igual ao Redis/Postgres). Só o backend fala com ele, via
     # o hostname `minio`. endpoint é host:port (sem scheme); o SDK monta a URL a

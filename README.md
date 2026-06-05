@@ -214,6 +214,14 @@ limite de tamanho):
   liveness (sem restart loop) — é o `/ready` que sinaliza o store degradado.
   Alternativas descartadas por ora: fail-open (`swallow_errors`, perde proteção
   contra abuso) e fallback em memória (`in_memory_fallback`, limite por-réplica).
+  **Regra operacional**: probes são para o **orquestrador** — NÃO roteie
+  `/api/v1/health` e `/api/v1/ready` no proxy público (sem auth + isentos de
+  rate-limit, seriam um amplificador de carga contra banco/Redis). Mitigação
+  em profundidade: o resultado do `/ready` é **cacheado**
+  (`READINESS_CACHE_SECONDS`, default 3s) — rajadas custam no máximo 1
+  round-trip de backend por janela. Não damos rate-limit próprio ao probe de
+  propósito: com o store fora, o limiter fail-closed trocaria o 503 granular
+  (com `checks`) por um 500 opaco.
 - **`NUM_TRUSTED_PROXIES` incorreto / `TRUST_PROXY` mal configurado**: se o valor
   for **maior** que o número real de proxies (ou `TRUST_PROXY=true` sem proxy
   reescrevendo o header), o IP extraído cai numa entrada **controlável pelo

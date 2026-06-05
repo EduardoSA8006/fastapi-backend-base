@@ -1,3 +1,5 @@
+import time
+
 import redis
 from fastapi import APIRouter
 from sqlalchemy import text
@@ -27,9 +29,24 @@ def readiness(request: Request) -> JSONResponse:
     Retorna 200 só quando todas respondem; caso contrário 503, para o
     orquestrador tirar a réplica do balanceador sem reiniciá-la (diferente do
     liveness). Cada checagem tem timeout curto para não pendurar o probe.
+
+    Anti-amplificação: o resultado é cacheado por readiness_cache_seconds —
+    o probe é isento de rate-limit e sem auth, então sem cache cada chamada
+    viraria SELECT 1 + PING (carga não-autenticada contra banco/Redis se o
+    path vazar para a borda). Rajadas custam <= 1 round-trip por janela.
     """
     # Settings deste app (respeita override de testes); fallback ao global.
     settings: Settings = getattr(request.app.state, "settings", None) or get_settings()
+
+    cache_ttl = settings.readiness_cache_seconds
+    cached: tuple[float, JSONResponse] | None = getattr(
+        request.app.state, "readiness_cache", None
+    )
+    if cache_ttl > 0 and cached is not None:
+        cached_at, cached_response = cached
+        if time.monotonic() - cached_at < cache_ttl:
+            return cached_response
+
     checks: dict[str, str] = {}
     ready = True
 
@@ -66,7 +83,12 @@ def readiness(request: Request) -> JSONResponse:
                 client.close()
 
     status_code = 200 if ready else 503
-    return JSONResponse(
+    response = JSONResponse(
         {"status": "ready" if ready else "not ready", "checks": checks},
         status_code=status_code,
     )
+    # Cacheia também falhas: protege o backend de rajadas mesmo degradado
+    # (recuperação aparece em <= TTL — atraso aceitável para o orquestrador).
+    if cache_ttl > 0:
+        request.app.state.readiness_cache = (time.monotonic(), response)
+    return response

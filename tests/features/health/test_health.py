@@ -49,3 +49,48 @@ def test_readiness_503_when_redis_unavailable() -> None:
     assert body["checks"]["redis"] == "error"
     # liveness permanece raso e verde mesmo com o Redis fora.
     assert ready_client.get("/api/v1/health").status_code == 200
+
+
+def test_readiness_cache_limita_idas_ao_backend() -> None:
+    # Anti-amplificação: o /ready é isento de rate-limit e sem auth — sem
+    # cache, cada chamada vira SELECT 1 + PING (amplificador não-autenticado
+    # contra banco/Redis). Com TTL, rajadas dentro da janela reusam o
+    # resultado: derrubo o engine após a 1ª chamada e a 2ª (cacheada) ainda
+    # responde 200; com TTL=0 (desligado), a falha aparece imediatamente.
+    from app.core.database import build_engine
+
+    settings = Settings(
+        rate_limit_storage_uri="memory://",
+        trusted_hosts=["testserver"],
+        readiness_cache_seconds=60.0,
+    )
+    app_cached = create_app(settings)
+    client_cached = TestClient(app_cached)
+    assert client_cached.get("/api/v1/ready").status_code == 200
+    # Backend "cai": engine trocado por um que aponta para porta morta.
+    app_cached.state.db_engine = build_engine(
+        Settings(
+            database_url="postgresql+psycopg://x:x@127.0.0.1:6399/x",
+            rate_limit_storage_uri="memory://",
+            trusted_hosts=["testserver"],
+        )
+    )
+    assert client_cached.get("/api/v1/ready").status_code == 200  # cacheado
+
+    # TTL=0 desliga o cache: mesma sequência detecta a queda na hora.
+    settings_off = Settings(
+        rate_limit_storage_uri="memory://",
+        trusted_hosts=["testserver"],
+        readiness_cache_seconds=0.0,
+    )
+    app_off = create_app(settings_off)
+    client_off = TestClient(app_off)
+    assert client_off.get("/api/v1/ready").status_code == 200
+    app_off.state.db_engine = build_engine(
+        Settings(
+            database_url="postgresql+psycopg://x:x@127.0.0.1:6399/x",
+            rate_limit_storage_uri="memory://",
+            trusted_hosts=["testserver"],
+        )
+    )
+    assert client_off.get("/api/v1/ready").status_code == 503

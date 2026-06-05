@@ -83,6 +83,9 @@ def test_ready_503_quando_banco_cai() -> None:
                 database_url=pg.get_connection_url(),
                 rate_limit_storage_uri="memory://",
                 trusted_hosts=["testserver"],
+                # Sem cache do /ready: o teste derruba o banco NO MEIO e
+                # precisa ver a falha na chamada seguinte.
+                readiness_cache_seconds=0.0,
             )
         )
         client = TestClient(app)
