@@ -2,8 +2,11 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
-# Importa os modelos para que fiquem registrados na metadata do Base.
-import app.models  # noqa: F401
+# Importa os models das features para registrá-los na metadata do Base.
+# Arquitetura feature-first: cada feature define seus models em
+# app/features/<nome>/models.py — adicione o import aqui ao criar a feature:
+#   import app.features.<nome>.models
+# (Hoje não há nenhum model — o domínio ainda não foi implementado.)
 from alembic import context
 from app.core.config import settings
 from app.core.database import Base

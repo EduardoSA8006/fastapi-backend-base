@@ -8,20 +8,20 @@ from sqlalchemy.engine import make_url
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.router import api_router
-from app.api.routes import health
 from app.core.config import Settings, get_settings
 from app.core.database import build_engine, build_session_factory
 from app.core.limiter import create_limiter, rate_limit_exceeded_handler
 from app.core.logging import configure_logging
+from app.core.middleware.body_size_limit import BodySizeLimitMiddleware
+from app.core.middleware.observability import RequestContextMiddleware
+from app.core.middleware.security_headers import SecurityHeadersMiddleware
 from app.core.security_guards import (
     WEAK_MINIO_USERS,
     WEAK_PASSWORDS,
     validate_celery_security,
 )
-from app.middleware.body_size_limit import BodySizeLimitMiddleware
-from app.middleware.observability import RequestContextMiddleware
-from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.features.health import router as health
+from app.shared.exceptions import register_exception_handlers
 
 logger = logging.getLogger("classup")
 
@@ -142,6 +142,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # override injetado (não o get_settings() global cacheado por lru_cache).
     app.state.settings = settings
 
+    # Erros de domínio (shared/exceptions): handler global converte
+    # AppException em resposta HTTP padronizada {"detail": ...}.
+    register_exception_handlers(app)
+
     # Engine/sessão do banco ligadas ao Settings deste app (respeita override).
     engine = build_engine(settings)
     app.state.db_engine = engine
@@ -190,7 +194,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         num_trusted_proxies=settings.num_trusted_proxies,
     )
 
-    app.include_router(api_router, prefix=settings.api_v1_prefix)
+    # Feature-first: cada feature expõe seu router e o composition root os
+    # inclui aqui, sob o prefixo da API. (Sem agregador intermediário.)
+    app.include_router(health.router, prefix=settings.api_v1_prefix)
     return app
 
 

@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.middleware.body_size_limit import BodySizeLimitMiddleware
+from app.core.middleware.body_size_limit import BodySizeLimitMiddleware
 
 
 def _build_app(max_body_size: int) -> FastAPI:

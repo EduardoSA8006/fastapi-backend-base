@@ -308,17 +308,31 @@ Todos esses passos rodam no CI (`.github/workflows/ci.yml`) em cada push/PR.
 
 ## Estrutura do projeto
 
+Arquitetura **feature-first + core + shared** (MVVM semântico):
+
 ```
 app/
-├── main.py            # Criação da app FastAPI
-├── core/
-│   ├── config.py      # Configurações (pydantic-settings)
-│   └── database.py    # Engine, sessão e Base do SQLAlchemy
-├── models/            # Modelos ORM
-├── schemas/           # Schemas Pydantic
-└── api/
-    ├── router.py      # Roteador agregador
-    └── routes/        # Endpoints
-alembic/               # Migrações de banco
-tests/                 # Testes
+├── main.py                # Composition root: create_app() + guards de produção
+├── worker.py              # Entrypoint Celery (worker e beat)
+├── core/                  # Infraestrutura transversal — zero regra de negócio
+│   ├── config.py          # Configurações (pydantic-settings)
+│   ├── database.py        # Engine, sessão e Base do SQLAlchemy
+│   ├── limiter.py         # Rate-limit (slowapi)
+│   ├── logging.py         # Logs JSON estruturados
+│   ├── client_ip.py       # Resolução do IP real (X-Forwarded-For)
+│   ├── security_guards.py # Política de credenciais fracas + guards do Celery
+│   └── middleware/        # Middlewares ASGI (headers, body-size, observabilidade)
+├── shared/                # Código cross-feature de domínio
+│   └── exceptions.py      # Hierarquia AppException + handler global
+└── features/              # Uma pasta por feature (MVVM semântico)
+    └── health/
+        └── router.py      # Probes de liveness/readiness
+alembic/                   # Migrações de banco
+tests/                     # Espelham a estrutura (core/, shared/, features/)
 ```
+
+Anatomia de uma feature: `router.py` (View — HTTP puro), `service.py`
+(ViewModel — caso de uso), `repository.py` + `models.py` (Model),
+`schemas.py` (DTOs), `exceptions.py` (herdam de `shared.exceptions`),
+`tasks.py` (Celery). Regras de dependência: features → core/shared;
+shared → core; feature nunca importa de outra feature.

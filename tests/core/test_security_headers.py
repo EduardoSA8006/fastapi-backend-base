@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.core.middleware.security_headers import SecurityHeadersMiddleware
 
 
 def _build_app(hsts_enabled: bool = False) -> FastAPI:
