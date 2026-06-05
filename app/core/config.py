@@ -25,7 +25,13 @@ class Settings(BaseSettings):
 
     # Ambiente de execução. Em "production" os guards de segurança falham duro
     # (Host, store do rate-limit, debug) e a documentação interativa é desligada.
-    environment: str = "development"
+    # OBRIGATÓRIO (sem default): esta é a variável-mestra que governa todos os
+    # guards — um default "development" seria fail-open para o caso de typo no
+    # NOME da variável (ENVIRONMNET=production seria ignorada e a app subiria
+    # em modo dev com /docs expostos e DEBUG aceito). Chave ausente = boot
+    # recusado com ValidationError. Defina via .env (cp .env.example .env) ou
+    # ambiente; o compose exige a variável (${ENVIRONMENT:?...}).
+    environment: str
 
     # Banco de dados — padrão SQLite local para desenvolvimento.
     database_url: str = "sqlite:///./classup.db"

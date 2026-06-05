@@ -232,10 +232,13 @@ limite de tamanho):
 - **Validação de env (typos)**: `Settings` usa `extra="ignore"` porque o `.env` é
   **compartilhado** com o docker-compose/entrypoint (`POSTGRES_*`,
   `REDIS_PASSWORD`, `RUN_MIGRATIONS_ON_START`), e `extra="forbid"` quebraria
-  `cp .env.example .env && uvicorn`. Mitigação: as settings críticas têm guards
-  de produção ou caem em defaults **seguros** (ex.: `CORS_ALLOW_ORIGINS` errado →
-  `[]` bloqueia tudo). Para adotar `extra="forbid"` (falhar em typos), separe o
-  `.env` da app das variáveis de infraestrutura.
+  `cp .env.example .env && uvicorn` — e, de toda forma, `extra="forbid"` NÃO
+  pegaria typo no ambiente do SO (o pydantic-settings só consulta nomes
+  conhecidos lá). Mitigação: a variável-mestra `ENVIRONMENT` é **obrigatória,
+  sem default** (typo no nome = chave ausente = boot recusado, na app E no
+  compose via `${ENVIRONMENT:?}`); as demais settings críticas têm guards de
+  produção ou caem em defaults **seguros** (ex.: `CORS_ALLOW_ORIGINS` errado →
+  `[]` bloqueia tudo).
 - **Swagger UI via CDN (apenas dev/staging)**: quando os docs estão ligados, o
   Swagger carrega assets de CDN (e a CSP é isenta nesses paths) — se o CDN for
   comprometido, há risco de XSS na página de docs. Em **produção os docs estão

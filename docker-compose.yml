@@ -157,7 +157,7 @@ services:
       APP_NAME: ${APP_NAME:-ClassUp Backend}
       # development por padrão (dev stack). Em produção defina ENVIRONMENT=production
       # — isso ativa os guards (Host, store do rate-limit, debug) e desliga /docs.
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      ENVIRONMENT: ${ENVIRONMENT:?defina ENVIRONMENT (development/staging/production) — sem default por segurança}
       DEBUG: ${DEBUG:-false}
       API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
       # Em produção com múltiplas réplicas, defina false e rode a migração como
@@ -256,7 +256,7 @@ services:
       redis-celery:
         condition: service_healthy
     environment:
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      ENVIRONMENT: ${ENVIRONMENT:?defina ENVIRONMENT (development/staging/production) — sem default por segurança}
       RUN_MIGRATIONS_ON_START: "false"
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
@@ -321,7 +321,7 @@ services:
       redis-celery:
         condition: service_healthy
     environment:
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      ENVIRONMENT: ${ENVIRONMENT:?defina ENVIRONMENT (development/staging/production) — sem default por segurança}
       RUN_MIGRATIONS_ON_START: "false"
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"

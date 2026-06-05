@@ -384,6 +384,18 @@ def test_minio_settings_defaults() -> None:
 # --- Validação fail-closed do ENVIRONMENT ---
 
 
+def test_environment_e_obrigatorio_sem_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Fail-closed também no NOME da variável: um typo (ENVIRONMNET=production)
+    # significa chave ausente — o boot deve falhar com ValidationError, não
+    # cair silenciosamente em development (que desligaria todos os guards).
+    # _env_file=None isola de um .env local; delenv simula o typo.
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    with pytest.raises(Exception, match="environment"):
+        Settings(_env_file=None)
+
+
 @pytest.mark.parametrize(
     "bad",
     [

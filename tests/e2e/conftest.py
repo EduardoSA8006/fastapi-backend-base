@@ -124,7 +124,8 @@ def _stack_lifecycle(project: str, env: dict[str, str]) -> Iterator[str]:
 
 
 # Ambientes dos dois stacks (module-level para compose_exec usar o certo).
-_DEV_ENV = {"API_PORT": "18001"}
+# ENVIRONMENT é obrigatório no compose (${ENVIRONMENT:?...}) — sem default.
+_DEV_ENV = {"API_PORT": "18001", "ENVIRONMENT": "development"}
 
 
 def _prod_env() -> dict[str, str]:
