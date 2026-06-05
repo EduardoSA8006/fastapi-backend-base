@@ -109,3 +109,66 @@ def test_rejection_is_logged_as_warning(
         response = client.get("/api/v1/health")
     assert response.status_code == 400
     assert any("-> 400" in record.getMessage() for record in caplog.records)
+
+
+# --- Branch defensivo: crash que escapa do ErrorBoundary ---
+
+
+async def test_access_log_registra_500_quando_excecao_escapa(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # O ErrorBoundary cobre o miolo da pilha, mas não a si mesmo nem ao
+    # SecurityHeaders: se uma exceção escapar até o RequestContext, a access
+    # line TEM de sair (status 500) e a exceção propaga.
+    import logging as _logging
+
+    from app.core.middleware.observability import RequestContextMiddleware
+
+    async def _raising_app(scope: object, receive: object, send: object) -> None:
+        raise RuntimeError("escapou do boundary")
+
+    middleware = RequestContextMiddleware(_raising_app)
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/_escape",
+        "headers": [],
+        "client": ("1.2.3.4", 1234),
+    }
+
+    from starlette.types import Message
+
+    async def _receive() -> Message:
+        return {"type": "http.request"}
+
+    async def _send(message: Message) -> None:  # pragma: no cover
+        pass
+
+    with (
+        caplog.at_level(_logging.ERROR, logger="classup.access"),
+        pytest.raises(RuntimeError, match="escapou"),
+    ):
+        await middleware(scope, _receive, _send)
+    records = [r for r in caplog.records if getattr(r, "status", None) == 500]
+    assert records, "access line não saiu para o crash que escapou"
+    assert records[0].path == "/_escape"  # type: ignore[attr-defined]
+
+
+async def test_passa_direto_scope_nao_http() -> None:
+    from starlette.types import Message
+
+    from app.core.middleware.observability import RequestContextMiddleware
+
+    called: dict[str, bool] = {}
+
+    async def _inner(scope: object, receive: object, send: object) -> None:
+        called["ok"] = True
+
+    async def _receive() -> Message:
+        return {"type": "lifespan.startup"}
+
+    async def _send(message: Message) -> None:
+        pass
+
+    await RequestContextMiddleware(_inner)({"type": "lifespan"}, _receive, _send)
+    assert called == {"ok": True}

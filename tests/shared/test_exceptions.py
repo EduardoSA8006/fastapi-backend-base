@@ -102,3 +102,21 @@ def test_resposta_de_erro_preserva_security_headers() -> None:
     response = client.get("/_boom")
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
+
+
+async def test_handler_fallback_para_excecao_nao_app_exception() -> None:
+    # Inalcançável pelo registro por tipo, mas o fallback existe para o caso
+    # de chamada incorreta (e para sobreviver a PYTHONOPTIMIZE sem assert):
+    # devolve 500 genérico sem vazar internals.
+    from types import SimpleNamespace
+    from typing import cast
+
+    from fastapi import Request
+
+    from app.shared.exceptions import app_exception_handler
+
+    request = cast(Request, SimpleNamespace())
+    response = await app_exception_handler(request, RuntimeError("segredo"))
+    assert response.status_code == 500
+    assert b"Erro interno." in response.body
+    assert b"segredo" not in response.body

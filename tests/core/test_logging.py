@@ -34,3 +34,28 @@ def test_json_formatter_escapes_crlf() -> None:
     out = JsonFormatter().format(_record("linha1\r\nFORJADA admin OK"))
     assert "\r\n" not in out
     assert json.loads(out)["message"] == "linha1\r\nFORJADA admin OK"
+
+
+def test_json_formatter_inclui_stacktrace_de_exc_info() -> None:
+    # Stacktrace serializado dentro do JSON (1 linha), não despejado cru.
+    import json
+    import logging
+    import sys
+
+    from app.core.logging import JsonFormatter
+
+    try:
+        raise ValueError("erro de teste")
+    except ValueError:
+        record = logging.LogRecord(
+            name="classup.test",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="falhou",
+            args=(),
+            exc_info=sys.exc_info(),
+        )
+    data = json.loads(JsonFormatter().format(record))
+    assert "exc_info" in data
+    assert "ValueError" in data["exc_info"]

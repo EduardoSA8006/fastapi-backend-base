@@ -78,3 +78,54 @@ def test_excecao_logada_com_stacktrace_e_request_id(
     record = records[0]
     assert record.exc_info is not None  # stacktrace presente
     assert getattr(record, "request_id", None) == "crash-test-id-456"
+
+
+# --- Branches defensivos do middleware (chamada ASGI direta) ---
+
+
+async def test_boundary_propaga_excecao_mid_stream() -> None:
+    # Resposta já iniciada (http.response.start enviado): não há como
+    # substituí-la por um 500 limpo — o boundary loga e PROPAGA, sem tentar
+    # enviar um segundo response.start (violaria o protocolo ASGI).
+    from app.core.middleware.error_boundary import ErrorBoundaryMiddleware
+
+    async def _midstream_app(scope: object, receive: object, send) -> None:  # type: ignore[no-untyped-def]
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        raise RuntimeError("crash mid-stream")
+
+    from starlette.types import Message
+
+    sent: list[Message] = []
+
+    async def _send(message: Message) -> None:
+        sent.append(message)
+
+    async def _receive() -> Message:  # pragma: no cover
+        return {"type": "http.request"}
+
+    middleware = ErrorBoundaryMiddleware(_midstream_app)
+    with pytest.raises(RuntimeError, match="mid-stream"):
+        await middleware({"type": "http", "path": "/x"}, _receive, _send)
+    # Só o start original foi enviado — nenhum 500 sintético no meio.
+    assert [m["type"] for m in sent] == ["http.response.start"]
+
+
+async def test_boundary_passa_direto_scope_nao_http() -> None:
+    # lifespan/websocket não são interceptados.
+    from starlette.types import Message
+
+    from app.core.middleware.error_boundary import ErrorBoundaryMiddleware
+
+    called: dict[str, bool] = {}
+
+    async def _inner(scope: object, receive: object, send: object) -> None:
+        called["ok"] = True
+
+    async def _receive() -> Message:
+        return {"type": "lifespan.startup"}
+
+    async def _send(message: Message) -> None:
+        pass
+
+    await ErrorBoundaryMiddleware(_inner)({"type": "lifespan"}, _receive, _send)
+    assert called == {"ok": True}

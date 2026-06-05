@@ -114,3 +114,22 @@ def test_streaming_response_is_not_buffered_and_gets_headers() -> None:
         response.headers["Content-Security-Policy"]
         == "default-src 'self'; frame-ancestors 'none'"
     )
+
+
+async def test_passa_direto_scope_nao_http() -> None:
+    # lifespan/websocket não recebem headers — passthrough puro.
+    from starlette.types import Message
+
+    called: dict[str, bool] = {}
+
+    async def _inner(scope: object, receive: object, send: object) -> None:
+        called["ok"] = True
+
+    async def _receive() -> Message:
+        return {"type": "lifespan.startup"}
+
+    async def _send(message: Message) -> None:
+        pass
+
+    await SecurityHeadersMiddleware(_inner)({"type": "lifespan"}, _receive, _send)
+    assert called == {"ok": True}

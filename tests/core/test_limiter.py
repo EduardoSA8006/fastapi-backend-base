@@ -84,3 +84,59 @@ def test_key_func_falls_back_when_fewer_entries_than_trusted_proxies() -> None:
     key_func = build_key_func(settings)
     request = _fake_request(host="10.0.0.1", forwarded_for="1.1.1.1")
     assert key_func(request) == "10.0.0.1"
+
+
+# --- Branches defensivos do rate_limit_exceeded_handler ---
+
+
+class _BoomLimiter:
+    """Simula mudança na API privada do slowapi (_inject_headers quebra)."""
+
+    def _inject_headers(self, response: object, limit_data: object) -> object:
+        raise RuntimeError("API privada mudou")
+
+
+class _StrLimiter:
+    """Simula Retry-After não-numérico vindo do slowapi."""
+
+    def _inject_headers(self, response, limit_data):  # type: ignore[no-untyped-def]
+        response.headers["Retry-After"] = "not-a-number"
+        return response
+
+
+def _fake_429_request(limiter: object) -> Request:
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(
+        state=SimpleNamespace(view_rate_limit=("limite", ["arg"])),
+        app=SimpleNamespace(state=SimpleNamespace(limiter=limiter)),
+    )
+    return cast(Request, request)
+
+
+def test_429_degrada_sem_headers_quando_inject_headers_quebra() -> None:
+    # _inject_headers é API privada do slowapi: se mudar, o handler degrada
+    # para um 429 limpo (sem Retry-After) em vez de explodir.
+    from app.core.limiter import rate_limit_exceeded_handler
+
+    response = rate_limit_exceeded_handler(
+        _fake_429_request(_BoomLimiter()), Exception()
+    )
+    assert response.status_code == 429
+    assert "Retry-After" not in response.headers
+    assert b"Rate limit exceeded" in response.body
+
+
+def test_429_preserva_retry_after_nao_numerico_como_string() -> None:
+    # Retry-After pode ser data HTTP (RFC 7231), não só segundos: o corpo
+    # carrega o valor como string em vez de quebrar no int().
+    import json
+
+    from app.core.limiter import rate_limit_exceeded_handler
+
+    response = rate_limit_exceeded_handler(
+        _fake_429_request(_StrLimiter()), Exception()
+    )
+    assert response.status_code == 429
+    body = json.loads(bytes(response.body))
+    assert body["retry_after"] == "not-a-number"
