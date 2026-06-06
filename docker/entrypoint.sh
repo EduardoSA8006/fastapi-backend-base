@@ -20,8 +20,17 @@ finally:
   sleep 1
 done
 
-echo "Banco disponível. Aplicando migrações..."
-alembic upgrade head
+echo "Banco disponível."
+
+# Migrações no boot: conveniente em dev. Em produção com múltiplas réplicas,
+# prefira rodar a migração como etapa separada de deploy (job one-shot) para
+# evitar corrida entre containers — defina RUN_MIGRATIONS_ON_START=false.
+if [ "${RUN_MIGRATIONS_ON_START:-true}" = "true" ]; then
+  echo "Aplicando migrações (alembic upgrade head)..."
+  alembic upgrade head
+else
+  echo "RUN_MIGRATIONS_ON_START=false — pulando migrações no boot."
+fi
 
 echo "Iniciando a aplicação..."
 exec "$@"

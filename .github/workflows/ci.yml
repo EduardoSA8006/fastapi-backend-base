@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Menor privilégio: o job só lê o código e roda testes.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions fixadas por SHA (tags são mutáveis — cadeia de suprimentos).
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Instalar Poetry
+        run: pipx install poetry
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+          cache: poetry
+
+      - name: Instalar dependências
+        run: poetry install --no-interaction
+
+      - name: Lint (ruff)
+        run: poetry run ruff check .
+
+      - name: Formatação (ruff format)
+        run: poetry run ruff format --check .
+
+      - name: Checagem de tipos (mypy --strict)
+        run: poetry run mypy .
+
+      - name: Testes + cobertura (pytest, gate 90%)
+        run: poetry run pytest
+
+      - name: Auditoria de dependências (pip-audit)
+        run: poetry run pip-audit
+
+  # SAST do código Python já é coberto pelas regras `S` (bandit) do ruff no job
+  # acima; aqui ficam o secret scanning e o scan da imagem Docker.
+  security:
+    runs-on: ubuntu-latest
+    # Em pull_request, o gitleaks lê os commits do PR (GET .../pulls/{n}/commits)
+    # para definir o range do scan — isso exige pull-requests:read (o default
+    # contents:read não basta). Mantém-se read-only: nada de escrita.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # histórico completo para o secret scanning
+
+      - name: Secret scanning (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Comentar no PR usa a API do GitHub (escrita) e exige pull-requests:write;
+          # com o token em contents:read isso falha com "Resource not accessible by
+          # integration". O scan em si não precisa do token — desligamos o comentário
+          # (mantendo o menor privilégio). O resultado segue no job summary e no log.
+          GITLEAKS_ENABLE_COMMENTS: false
+
+      - name: Build da imagem
+        run: docker build -t classup-backend:ci .
+
+      - name: Scan da imagem (trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: classup-backend:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

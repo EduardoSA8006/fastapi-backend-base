@@ -61,8 +61,11 @@ Carregados via variáveis de ambiente (`pydantic-settings`):
 O `X-Forwarded-For` é spoofável. O `key_func` do rate-limit só lê esse header
 quando `trust_proxy=true` (cenário com proxy reverso conhecido na frente);
 caso contrário usa `request.client.host`. Isso evita que um atacante forje
-IPs para burlar o limite. Quando `trust_proxy=true`, considera-se o primeiro IP
-da cadeia `X-Forwarded-For`.
+IPs para burlar o limite. Quando `trust_proxy=true`, considera-se o **último IP
+(mais à direita)** da cadeia `X-Forwarded-For` — que é o endereço que o proxy
+confiável acrescentou. A entrada mais à esquerda é controlável pelo cliente e
+**não** deve ser usada (usá-la permitiria burlar o rate-limit forjando IPs).
+Assume-se **um único** proxy confiável à frente.
 
 O `rate_limit_storage_uri` default `memory://` permite rodar localmente sem
 Redis; o `docker-compose` o aponta para o serviço Redis.
@@ -141,4 +144,34 @@ Redis:
 - WAF/regras avançadas, bot detection.
 - Rate-limit por rota além do mecanismo de override (limites específicos serão
   adicionados conforme os endpoints surgirem).
-```
+
+## Notas de implementação / desvios
+
+Durante a execução (com análise de código profunda por tarefa + revisão de
+segurança automatizada), o design foi ajustado nos seguintes pontos:
+
+- **IP do proxy (correção de segurança):** o design original mencionava o
+  primeiro IP de `X-Forwarded-For`; o correto e implementado é o **último (mais
+  à direita)**, que o proxy confiável acrescenta. O primeiro é forjável e
+  permitiria burlar o rate-limit.
+- **Limite de corpo (escopo ampliado):** inicialmente apenas via
+  `Content-Length` (chunked marcado como YAGNI). Após a revisão, o
+  `BodySizeLimitMiddleware` foi reescrito como middleware **ASGI puro** que conta
+  os **bytes reais do stream**, fechando o bypass via `Transfer-Encoding:
+  chunked`. Também passou a rejeitar `Content-Length` negativo/inválido e a
+  validar `max_body_size > 0`.
+- **Ordem dos middlewares (correção de segurança):** o `SecurityHeadersMiddleware`
+  ficou o **mais externo** (não o mais interno), para que TODAS as respostas —
+  inclusive rejeições `400`/`413`/`429` dos demais middlewares — recebam os
+  cabeçalhos de segurança.
+- **CSP vs. Swagger:** o `Content-Security-Policy` é isento em `/docs`, `/redoc`
+  e `/openapi.json` para não quebrar a UI de documentação.
+- **Guarda de CORS:** `create_app` rejeita na inicialização a combinação
+  insegura `cors_allow_credentials=true` + `cors_allow_origins=["*"]`.
+- **Rate-limit headers:** o `Limiter` é criado com `headers_enabled=true` para
+  emitir `Retry-After`/`X-RateLimit-*`; o handler 429 é **síncrono** (exigência
+  do `SlowAPIMiddleware`) e resiliente à API privada do slowapi.
+- **Redis:** exposto **apenas na rede interna** do Docker (sem mapeamento de
+  porta no host), reduzindo a superfície de ataque.
+- **Aviso de produção:** `create_app` emite um warning quando `trusted_hosts`
+  é `["*"]` com `debug=false` (validação de Host efetivamente desativada).

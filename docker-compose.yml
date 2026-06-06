@@ -7,14 +7,33 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-classup}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-classup}
       POSTGRES_DB: ${POSTGRES_DB:-classup}
-    ports:
-      - "5432:5432"
+    # Sem `ports:` — o Postgres NÃO é exposto ao host. Acessível apenas pela
+    # rede interna do Docker (pelo serviço `api`), via o hostname `db`.
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-classup}"]
       interval: 5s
       timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: classup-redis
+    restart: unless-stopped
+    # Exige senha mesmo na rede interna (um container comprometido não conecta
+    # sem credencial; impede FLUSHALL/leitura anônima das chaves do rate-limit).
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-classup}"]
+    # Sem `ports:` — o Redis NÃO é exposto ao host. Acessível apenas pela rede
+    # interna do Docker (pelo serviço `api`), via o hostname `redis`.
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-classup}", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 5
 
   api:
@@ -24,15 +43,53 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       APP_NAME: ${APP_NAME:-ClassUp Backend}
+      # development por padrão (dev stack). Em produção defina ENVIRONMENT=production
+      # — isso ativa os guards (Host, store do rate-limit, debug) e desliga /docs.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-false}
       API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      # Em produção com múltiplas réplicas, defina false e rode a migração como
+      # etapa de deploy separada.
+      RUN_MIGRATIONS_ON_START: ${RUN_MIGRATIONS_ON_START:-true}
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
+      # H3: senhas embutidas em env são visíveis via `docker inspect` e em
+      # /proc/<pid>/environ — aceitável neste stack de dev. Em PRODUÇÃO, prefira
+      # Docker/Swarm secrets (arquivos em /run/secrets) ou um secrets manager;
+      # o pydantic-settings lê de arquivos via `secrets_dir` (ex.: /run/secrets),
+      # evitando expor a credencial no ambiente do processo.
+      # H6: redis:// é texto puro — ok na rede interna do mesmo host. Se o Redis
+      # cruzar a fronteira de host (gerenciado/outro nó), troque para rediss://
+      # (TLS); o guard de senha do main.py já cobre rediss://.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
+      RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-classup}@redis:6379/0
+      # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),
+      # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.classup.com.
+      HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-127.0.0.1}
+    # Bind em loopback por padrão (secure-by-default): a porta da app NÃO fica
+    # exposta em todas as interfaces. Isso evita que um atacante alcance a app
+    # contornando o proxy reverso — crítico com TRUST_PROXY=true, onde um acesso
+    # direto com X-Forwarded-For forjado furaria o rate-limit por IP.
+    # Em produção, o ideal é NÃO publicar a porta: ponha API e proxy na mesma
+    # rede interna e exponha só o proxy (a app é alcançável via hostname `api`).
+    # Para expor na LAN em dev, defina API_BIND=0.0.0.0 conscientemente.
     ports:
-      - "${API_PORT:-8001}:8000"
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8001}:8000"
+    # Endurecimento do container (anti-DoS / contenção):
+    read_only: true            # rootfs somente leitura
+    tmpfs:
+      - /tmp                   # único ponto gravável (efêmero)
+    security_opt:
+      - no-new-privileges:true # impede escalonamento via setuid
+    cap_drop:
+      - ALL                    # nenhuma capability do kernel
+    pids_limit: 256            # limita fork bombs
+    cpus: 1.0                  # teto de CPU
+    mem_limit: 512m            # teto de memória
 
 volumes:
   postgres_data:
