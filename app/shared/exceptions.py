@@ -16,7 +16,7 @@ import logging
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse
 
-logger = logging.getLogger("classup.errors")
+logger = logging.getLogger("myapp.errors")
 
 
 class AppException(Exception):

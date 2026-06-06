@@ -54,7 +54,7 @@ def test_crash_aparece_no_access_log_com_request_id(
     # Antes, a requisição que crashava era a ÚNICA que sumia do access log
     # (o log só disparava em http.response.start).
     client = _crashing_client()
-    with caplog.at_level(logging.INFO, logger="classup.access"):
+    with caplog.at_level(logging.INFO, logger="myapp.access"):
         client.get("/_crash", headers={"X-Request-ID": "crash-test-id-123"})
     records = [r for r in caplog.records if getattr(r, "status", None) == 500]
     assert records, "crash não apareceu no access log"
@@ -67,9 +67,9 @@ def test_excecao_logada_com_stacktrace_e_request_id(
     # A causa (stacktrace) é registrada no log estruturado, correlacionada
     # pelo mesmo request_id do access log.
     client = _crashing_client()
-    with caplog.at_level(logging.ERROR, logger="classup.errors"):
+    with caplog.at_level(logging.ERROR, logger="myapp.errors"):
         client.get("/_crash", headers={"X-Request-ID": "crash-test-id-456"})
-    records = [r for r in caplog.records if r.name == "classup.errors"]
+    records = [r for r in caplog.records if r.name == "myapp.errors"]
     assert records, "exceção não foi logada"
     record = records[0]
     assert record.exc_info is not None  # stacktrace presente

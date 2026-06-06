@@ -21,7 +21,7 @@ atacado de fora com httpx). A suíte unitária atual permanece o gate rápido.
   pyproject; `addopts` ganha `-m "not integration and not e2e"` — `poetry run
   pytest` continua rápido e o CI atual não muda. Execução manual:
   `pytest -m integration --no-cov` / `pytest -m e2e --no-cov`.
-- **E2E em projeto compose isolado**: `docker compose -p classup-e2e` com
+- **E2E em projeto compose isolado**: `docker compose -p myapp-e2e` com
   `API_PORT=18001` — volumes/containers próprios; `down -v` no teardown não
   toca o stack/volumes de dev do usuário.
 - Cobertura: o gate de 90% segue sendo responsabilidade da suíte unitária;
@@ -48,7 +48,7 @@ atacado de fora com httpx). A suíte unitária atual permanece o gate rápido.
 
 ### tests/e2e/ (marker `e2e`)
 
-Fixture de sessão: `docker compose -p classup-e2e up -d --build` (API_PORT
+Fixture de sessão: `docker compose -p myapp-e2e up -d --build` (API_PORT
 18001), espera api/worker/minio ficarem `healthy` (poll), teardown
 `down -v` do projeto isolado. Testes (httpx contra `http://127.0.0.1:18001`):
 

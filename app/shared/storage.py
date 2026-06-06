@@ -5,7 +5,7 @@ mapeamento de erros vivem em UM lugar. Contrato de rede (ver spec do MinIO):
 o MinIO não tem porta publicada — só o backend o alcança, e o conteúdo é
 servido pelo proxy do FastAPI. NUNCA exponha presigned URL a cliente público.
 
-Decisões (espelham o padrão do portfolio, adaptadas à hierarquia do classup):
+Decisões (espelham o padrão do portfolio, adaptadas à hierarquia do myapp):
 - O SDK `minio` é síncrono; handlers são async → cada operação roda em
   `asyncio.to_thread`, uma única vez aqui (call sites ficam limpos).
 - Bucket é garantido LAZY no primeiro uso (sem acoplamento de startup: MinIO
@@ -28,7 +28,7 @@ from minio.error import S3Error
 from app.core.config import get_settings
 from app.shared.exceptions import NotFoundError, UnavailableError
 
-logger = logging.getLogger("classup.storage")
+logger = logging.getLogger("myapp.storage")
 
 
 class StorageObjectNotFoundError(NotFoundError):

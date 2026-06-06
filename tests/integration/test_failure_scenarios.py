@@ -136,7 +136,7 @@ def test_storage_integro_sob_concorrencia(monkeypatch: pytest.MonkeyPatch) -> No
     from app.core.config import Settings
     from app.shared import storage
 
-    user, password = "classup-svc-test", "S3nhaTesteMinio123"
+    user, password = "myapp-svc-test", "S3nhaTesteMinio123"
     container = (
         DockerContainer("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z")
         .with_env("MINIO_ROOT_USER", user)

@@ -16,9 +16,9 @@ from app.shared.storage import StorageObjectNotFoundError
 
 pytestmark = pytest.mark.integration
 
-_USER = "classup-svc-test"
+_USER = "myapp-svc-test"
 _PASSWORD = "S3nhaTesteMinio123"
-_BUCKET = "classup-test-files"
+_BUCKET = "myapp-test-files"
 
 
 @pytest.fixture(scope="module")

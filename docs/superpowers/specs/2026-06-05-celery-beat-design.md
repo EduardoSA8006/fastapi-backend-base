@@ -7,7 +7,7 @@ Status: aprovado
 ## Objetivo
 
 Adicionar processamento assíncrono (Celery worker) e agendamento periódico
-(Celery Beat) ao ClassUp, com a postura de segurança mais forte possível —
+(Celery Beat) ao MyApp, com a postura de segurança mais forte possível —
 indo além do padrão do `portfolio-monorepo` onde houver oportunidade de
 reforço. Tudo roda em containers na rede interna do Docker, sem nada exposto
 ao host.
@@ -38,7 +38,7 @@ seguro possível, reforçando o que o portfolio não tem.
 4. **Guards rodam também no worker** (no import de `app.worker`), não só na
    API — o worker não chama `create_app`, então validação compartilhada.
 5. **`REDISCLI_AUTH` no healthcheck do redis-celery** — senha fora do
-   `argv`/`ps` (o `redis` atual do classup ainda usa `-a`; corrigir o
+   `argv`/`ps` (o `redis` atual do myapp ainda usa `-a`; corrigir o
    existente fica fora de escopo).
 6. **Worker sem chatter peer-a-peer**: `--without-gossip --without-mingle
    --without-heartbeat` (um único worker; menos tráfego de controle no
@@ -102,7 +102,7 @@ conforme a tabela.
 ### 2. `app/worker.py` (novo) — Celery app endurecido
 
 ```python
-celery_app = Celery("classup", broker=..., backend=...)
+celery_app = Celery("myapp", broker=..., backend=...)
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
@@ -130,8 +130,8 @@ celery_app.conf.update(
 ### 3. `app/core/config.py` — settings novas (lowercase)
 
 ```python
-celery_broker_url: str = "redis://:classup@redis-celery:6379/0"
-celery_result_backend: str = "redis://:classup@redis-celery:6379/1"
+celery_broker_url: str = "redis://:myapp@redis-celery:6379/0"
+celery_result_backend: str = "redis://:myapp@redis-celery:6379/1"
 celery_task_always_eager: bool = False
 ```
 

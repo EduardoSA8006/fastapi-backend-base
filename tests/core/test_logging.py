@@ -6,7 +6,7 @@ from app.core.logging import JsonFormatter
 
 def _record(msg: str, **extra: object) -> logging.LogRecord:
     record = logging.LogRecord(
-        name="classup.access",
+        name="myapp.access",
         level=logging.INFO,
         pathname=__file__,
         lineno=1,
@@ -24,7 +24,7 @@ def test_json_formatter_outputs_valid_json_with_fields() -> None:
     data = json.loads(out)
     assert data["message"] == "access"
     assert data["level"] == "INFO"
-    assert data["logger"] == "classup.access"
+    assert data["logger"] == "myapp.access"
     assert data["request_id"] == "abc"
     assert data["client"] == "1.2.3.4"
 
@@ -48,7 +48,7 @@ def test_json_formatter_inclui_stacktrace_de_exc_info() -> None:
         raise ValueError("erro de teste")
     except ValueError:
         record = logging.LogRecord(
-            name="classup.test",
+            name="myapp.test",
             level=logging.ERROR,
             pathname=__file__,
             lineno=1,

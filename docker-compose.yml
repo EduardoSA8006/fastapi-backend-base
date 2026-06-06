@@ -8,14 +8,14 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: classup-db
+    container_name: myapp-db
     restart: unless-stopped
     networks:
       - data_net
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-classup}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-classup}
-      POSTGRES_DB: ${POSTGRES_DB:-classup}
+      POSTGRES_USER: ${POSTGRES_USER:-myapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myapp}
+      POSTGRES_DB: ${POSTGRES_DB:-myapp}
     # Sem `ports:` — o Postgres NÃO é exposto ao host. Acessível apenas pela
     # rede interna do Docker (pelo serviço `api`), via o hostname `db`.
     expose:
@@ -23,24 +23,24 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-classup}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-myapp}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: classup-redis
+    container_name: myapp-redis
     restart: unless-stopped
     # Exige senha mesmo na rede interna (um container comprometido não conecta
     # sem credencial; impede FLUSHALL/leitura anônima das chaves do rate-limit).
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-classup}"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-myapp}"]
     # Sem `ports:` — o Redis NÃO é exposto ao host. Acessível apenas pela rede
     # interna do Docker (pelo serviço `api`), via o hostname `redis`.
     expose:
       - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-classup}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-myapp}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -49,7 +49,7 @@ services:
 
   redis-celery:
     image: redis:7-alpine
-    container_name: classup-redis-celery
+    container_name: myapp-redis-celery
     restart: unless-stopped
     # Broker + result backend DEDICADOS do Celery — instância separada do
     # Redis do rate-limit (o guard de produção recusa apontá-los para a mesma
@@ -76,7 +76,7 @@ services:
         --maxmemory-policy noeviction
         --appendonly no
     environment:
-      CELERY_REDIS_PASSWORD: ${CELERY_REDIS_PASSWORD:-classup}
+      CELERY_REDIS_PASSWORD: ${CELERY_REDIS_PASSWORD:-myapp}
     # Sem `ports:` — não é exposto ao host; alcançável só em celery_net.
     expose:
       - "6379"
@@ -102,7 +102,7 @@ services:
 
   minio:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: classup-minio
+    container_name: myapp-minio
     restart: unless-stopped
     # `server /data` sobe o object store. `--console-address :9001` prende o
     # console a uma porta que NUNCA é exposta nem publicada — não há caminho de
@@ -110,11 +110,11 @@ services:
     # via `docker exec`.
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-myapp}
       # H3: senha em env é visível via `docker inspect`/proc — ok neste stack de
       # dev. Em PRODUÇÃO, prefira Docker secrets (/run/secrets) ou um secrets
       # manager. O boot da API é recusado com senha default/fraca em produção.
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup-minio-dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-myapp-minio-dev}
     # Sem `ports:` — o MinIO NÃO é exposto ao host. Acessível apenas pela rede
     # interna do Docker (pelo serviço `api`), via o hostname `minio`. Só a porta
     # da API S3 (9000) fica visível na rede interna; o console (9001) não.
@@ -142,7 +142,7 @@ services:
 
   api:
     build: .
-    container_name: classup-api
+    container_name: myapp-api
     restart: unless-stopped
     depends_on:
       db:
@@ -154,7 +154,7 @@ services:
       minio:
         condition: service_healthy
     environment:
-      APP_NAME: ${APP_NAME:-ClassUp Backend}
+      APP_NAME: ${APP_NAME:-MyApp Backend}
       # development por padrão (dev stack). Em produção defina ENVIRONMENT=production
       # — isso ativa os guards (Host, store do rate-limit, debug) e desliga /docs.
       ENVIRONMENT: ${ENVIRONMENT:?defina ENVIRONMENT (development/staging/production) — sem default por segurança}
@@ -173,8 +173,8 @@ services:
       # H6: redis:// é texto puro — ok na rede interna do mesmo host. Se o Redis
       # cruzar a fronteira de host (gerenciado/outro nó), troque para rediss://
       # (TLS); o guard de senha do main.py já cobre rediss://.
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
-      RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-classup}@redis:6379/0
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-myapp}:${POSTGRES_PASSWORD:-myapp}@db:5432/${POSTGRES_DB:-myapp}
+      RATE_LIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD:-myapp}@redis:6379/0
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-100/minute}
       # Configs de segurança lidas do ambiente do HOST. SEM estas linhas o
@@ -198,15 +198,15 @@ services:
       # boot é recusado com MINIO_ROOT_PASSWORD default/fraca.
       MINIO_ENDPOINT: minio:9000
       MINIO_USE_SSL: "false"
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup-minio-dev}
-      MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-myapp}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-myapp-minio-dev}
+      MINIO_BUCKET: ${MINIO_BUCKET:-myapp-files}
       # Celery: a api só DESPACHA tasks (.delay()) — broker/result backend na
       # instância dedicada (redis-celery), separada do Redis do rate-limit.
-      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/0
-      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/1
+      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/0
+      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/1
       # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),
-      # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.classup.com.
+      # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.myapp.com.
       HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-127.0.0.1}
     # Bind em loopback por padrão (secure-by-default): a porta da app NÃO fica
     # exposta em todas as interfaces. Isso evita que um atacante alcance a app
@@ -235,7 +235,7 @@ services:
 
   worker:
     build: .
-    container_name: classup-worker
+    container_name: myapp-worker
     restart: unless-stopped
     # Mesma imagem da api; o entrypoint espera o banco mas NÃO migra
     # (RUN_MIGRATIONS_ON_START=false) — migração é responsabilidade da
@@ -260,17 +260,17 @@ services:
       RUN_MIGRATIONS_ON_START: "false"
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
-      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/0
-      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/1
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-myapp}:${POSTGRES_PASSWORD:-myapp}@db:5432/${POSTGRES_DB:-myapp}
+      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/0
+      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/1
       # Tasks futuros alcançam o storage (data_net) com a MESMA credencial da
       # api — não há credencial separada porque o MinIO não tem contas com
       # escopo neste design (ver spec do MinIO).
       MINIO_ENDPOINT: minio:9000
       MINIO_USE_SSL: "false"
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup-minio-dev}
-      MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-myapp}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-myapp-minio-dev}
+      MINIO_BUCKET: ${MINIO_BUCKET:-myapp-files}
     healthcheck:
       # Processo vivo ≠ worker funcional: `inspect ping` faz round-trip real
       # pelo broker e só responde se o loop de consumo está saudável.
@@ -303,7 +303,7 @@ services:
 
   beat:
     build: .
-    container_name: classup-beat
+    container_name: myapp-beat
     restart: unless-stopped
     # EXATAMENTE 1 réplica: dois beats = todo schedule disparado em dobro.
     # Se a topologia um dia escalar, migre para celery-redbeat (scheduler
@@ -325,9 +325,9 @@ services:
       RUN_MIGRATIONS_ON_START: "false"
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-classup}:${POSTGRES_PASSWORD:-classup}@db:5432/${POSTGRES_DB:-classup}
-      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/0
-      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-classup}@redis-celery:6379/1
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-myapp}:${POSTGRES_PASSWORD:-myapp}@db:5432/${POSTGRES_DB:-myapp}
+      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/0
+      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/1
     healthcheck:
       # Beat não executa tasks — só publica no broker. Sinal de vida: o
       # arquivo de schedule é sincronizado periodicamente (PersistentScheduler

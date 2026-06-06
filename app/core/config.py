@@ -19,7 +19,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "ClassUp Backend"
+    app_name: str = "MyApp Backend"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     environment: str
 
     # Banco de dados — padrão SQLite local para desenvolvimento.
-    database_url: str = "sqlite:///./classup.db"
+    database_url: str = "sqlite:///./myapp.db"
 
     # Rate limit
     rate_limit_enabled: bool = True
@@ -80,19 +80,19 @@ class Settings(BaseSettings):
     # partir de minio_use_ssl.
     minio_endpoint: str = "minio:9000"
     minio_use_ssl: bool = False
-    minio_root_user: str = "classup"
+    minio_root_user: str = "myapp"
     # Default dev (espelha o compose). O MinIO RECUSA senhas < 8 caracteres
-    # (por isso não é "classup"); o guard de produção recusa este valor por
+    # (por isso não é "myapp"); o guard de produção recusa este valor por
     # estar em WEAK_PASSWORDS. noqa: não é segredo real.
-    minio_root_password: str = "classup-minio-dev"  # noqa: S105
-    minio_bucket: str = "classup-files"
+    minio_root_password: str = "myapp-minio-dev"  # noqa: S105
+    minio_bucket: str = "myapp-files"
 
     # Celery — broker e result backend numa instância Redis DEDICADA
     # (redis-celery), separada do Redis do rate-limit; em produção o guard
     # recusa apontar os dois para a mesma instância. DB 0 = broker,
     # DB 1 = resultados (keyspaces separados facilitam inspeção/limpeza).
-    celery_broker_url: str = "redis://:classup@redis-celery:6379/0"
-    celery_result_backend: str = "redis://:classup@redis-celery:6379/1"
+    celery_broker_url: str = "redis://:myapp@redis-celery:6379/0"
+    celery_result_backend: str = "redis://:myapp@redis-celery:6379/1"
     # Execução síncrona in-process (sem broker) — só para testes.
     celery_task_always_eager: bool = False
     # Cadência do heartbeat do beat (core.ping). Retunável via env sem mudar

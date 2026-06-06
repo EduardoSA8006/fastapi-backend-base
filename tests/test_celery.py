@@ -31,7 +31,7 @@ def test_strong_and_separate_config_passes() -> None:
     validate_celery_security(_prod())
 
 
-@pytest.mark.parametrize("weak", ["classup", "password", ""])
+@pytest.mark.parametrize("weak", ["myapp", "password", ""])
 def test_rejects_weak_broker_password(weak: str) -> None:
     cred = f":{weak}@" if weak else ""
     with pytest.raises(ValueError, match="Celery"):
@@ -62,7 +62,7 @@ def test_rejects_weak_result_backend_password() -> None:
     # O backend também carrega credencial — mesma régua do broker.
     with pytest.raises(ValueError, match="Celery"):
         validate_celery_security(
-            _prod(celery_result_backend="redis://:classup@redis-celery:6379/1")
+            _prod(celery_result_backend="redis://:myapp@redis-celery:6379/1")
         )
 
 
@@ -105,9 +105,9 @@ def test_create_app_production_rejects_weak_celery_password() -> None:
         environment="production",
         trusted_hosts=["api.test"],
         rate_limit_enabled=False,
-        minio_root_user="classup-svc-7f3a",
+        minio_root_user="myapp-svc-7f3a",
         minio_root_password="S3nhaForteMinio123",
-        celery_broker_url="redis://:classup@redis-celery:6379/0",
+        celery_broker_url="redis://:myapp@redis-celery:6379/0",
         celery_result_backend=_STRONG_BACKEND,
     )
     with pytest.raises(ValueError, match="Celery"):

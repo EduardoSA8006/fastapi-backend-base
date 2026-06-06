@@ -13,14 +13,14 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
 
-logger = logging.getLogger("classup")
+logger = logging.getLogger("myapp")
 
 # Senhas notoriamente fracas/default que não podem ir para produção.
-# "classup-minio-dev" é o default de dev do MinIO (que exige >= 8 chars) —
-# por ser público no repositório, é tão fraco quanto "classup".
+# "myapp-minio-dev" é o default de dev do MinIO (que exige >= 8 chars) —
+# por ser público no repositório, é tão fraco quanto "myapp".
 WEAK_PASSWORDS = {
-    "classup",
-    "classup-minio-dev",
+    "myapp",
+    "myapp-minio-dev",
     "postgres",
     "password",
     "changeme",
@@ -32,7 +32,7 @@ WEAK_PASSWORDS = {
 # segredo), o root do MinIO é a credencial de admin do storage; um nome óbvio
 # facilita enumeração caso a porta vaze. Defesa-em-profundidade sobre o
 # isolamento de rede.
-WEAK_MINIO_USERS = {"classup", "minio", "admin", "root", "minioadmin", ""}
+WEAK_MINIO_USERS = {"myapp", "minio", "admin", "root", "minioadmin", ""}
 
 # Schemes aceitos para broker/result-backend do Celery. A arquitetura usa um
 # Redis dedicado (redis-celery); rediss:// (TLS) fica aceito desde já para o

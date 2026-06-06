@@ -1,6 +1,6 @@
-# ClassUp Backend
+# MyApp Backend
 
-Backend da aplicação ClassUp construído com **FastAPI**, **SQLAlchemy** e **Alembic**, gerenciado com **Poetry**.
+Backend da aplicação MyApp construído com **FastAPI**, **SQLAlchemy** e **Alembic**, gerenciado com **Poetry**.
 
 ## Requisitos
 
@@ -142,7 +142,7 @@ de deploy (evita corrida entre containers).
 > **Healthcheck do container**: o probe do Docker envia `Host: 127.0.0.1` por
 > padrão, que o `TrustedHostMiddleware` rejeitaria sob `TRUSTED_HOSTS` restrito
 > (→ 400 → restart loop). Defina `HEALTHCHECK_HOST` com um host permitido (ex.:
-> `HEALTHCHECK_HOST=api.classup.com`). Não afrouxamos o `TrustedHost` para o
+> `HEALTHCHECK_HOST=api.myapp.com`). Não afrouxamos o `TrustedHost` para o
 > loopback de propósito — o probe carrega o `Host` correto.
 
 ### TLS
@@ -153,7 +153,7 @@ A aplicação não termina TLS. No deploy de produção:
   `HTTP → HTTPS`.
 - Com HTTPS ativo, defina `HSTS_ENABLED=true`.
 - Para Postgres externo/gerenciado, exija TLS na conexão:
-  `DATABASE_URL=postgresql+psycopg://.../classup?sslmode=require`.
+  `DATABASE_URL=postgresql+psycopg://.../myapp?sslmode=require`.
 
 ### Defesa em profundidade no proxy/borda
 

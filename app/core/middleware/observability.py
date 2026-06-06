@@ -7,7 +7,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.client_ip import resolve_client_ip
 
-logger = logging.getLogger("classup.access")
+logger = logging.getLogger("myapp.access")
 
 # X-Request-ID aceito do cliente: apenas caracteres seguros e tamanho limitado.
 # Evita CRLF/controle (log injection) e IDs absurdamente longos.

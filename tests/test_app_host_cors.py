@@ -19,9 +19,9 @@ def test_healthcheck_host_must_be_trusted() -> None:
     # Contrato do healthcheck (achado 7): com TRUSTED_HOSTS restrito, o probe
     # precisa enviar HEALTHCHECK_HOST com um host permitido. Um host permitido
     # passa; o loopback (fora da lista) é rejeitado — por isso HEALTHCHECK_HOST.
-    client = make_client(trusted_hosts=["api.classup.com"])
+    client = make_client(trusted_hosts=["api.myapp.com"])
     assert (
-        client.get("/api/v1/health", headers={"host": "api.classup.com"}).status_code
+        client.get("/api/v1/health", headers={"host": "api.myapp.com"}).status_code
         == 200
     )
     assert (

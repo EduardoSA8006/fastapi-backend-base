@@ -1,7 +1,7 @@
 # Design — Camada de Segurança Global
 
 **Data:** 2026-05-29
-**Projeto:** classup-backend (FastAPI)
+**Projeto:** myapp-backend (FastAPI)
 **Escopo:** Infraestrutura de segurança aplicada globalmente: rate-limit + proteções de borda.
 
 ## Objetivo

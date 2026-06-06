@@ -68,7 +68,7 @@ jobs:
       - name: Testes de integração (testcontainers)
         run: poetry run pytest -m integration --no-cov
 
-  # E2E: sobe o stack compose completo (projetos isolados classup-e2e*) e o
+  # E2E: sobe o stack compose completo (projetos isolados myapp-e2e*) e o
   # ataca de fora com httpx — inclui o invariante de isolamento de rede e o
   # stack em modo production com credenciais fortes geradas no teste.
   e2e:
@@ -116,12 +116,12 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: false
 
       - name: Build da imagem
-        run: docker build -t classup-backend:ci .
+        run: docker build -t myapp-backend:ci .
 
       - name: Scan da imagem (trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: classup-backend:ci
+          image-ref: myapp-backend:ci
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"

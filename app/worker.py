@@ -1,4 +1,4 @@
-"""Aplicação Celery (worker + beat) do ClassUp.
+"""Aplicação Celery (worker + beat) do MyApp.
 
 SEGURANÇA: o broker e o result backend vivem numa instância Redis DEDICADA
 (redis-celery), separada do Redis do rate-limit. O docker-compose reforça
@@ -21,7 +21,7 @@ settings = get_settings()
 validate_celery_security(settings)
 
 celery_app = Celery(
-    "classup",
+    "myapp",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
 )

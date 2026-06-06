@@ -2,7 +2,7 @@ import logging
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-logger = logging.getLogger("classup.errors")
+logger = logging.getLogger("myapp.errors")
 
 # Corpo fixo e pré-serializado: o caminho de erro não depende de json.dumps
 # nem de nada que possa falhar de novo (um boundary que quebra não serve).

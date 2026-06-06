@@ -59,7 +59,7 @@ def test_client_ip_not_logged_when_disabled(
             )
         )
     )
-    with caplog.at_level(logging.INFO, logger="classup.access"):
+    with caplog.at_level(logging.INFO, logger="myapp.access"):
         client.get("/api/v1/health")
     access_lines = [r.getMessage() for r in caplog.records]
     assert any("client=-" in line for line in access_lines)
@@ -80,7 +80,7 @@ def test_client_ip_logged_from_xff_when_trust_proxy(
             )
         )
     )
-    with caplog.at_level(logging.INFO, logger="classup.access"):
+    with caplog.at_level(logging.INFO, logger="myapp.access"):
         client.get("/api/v1/health", headers={"X-Forwarded-For": "9.9.9.9"})
     assert any("client=9.9.9.9" in r.getMessage() for r in caplog.records)
 
@@ -89,7 +89,7 @@ def test_client_ip_ignores_xff_when_proxy_untrusted(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Sem trust_proxy, um X-Forwarded-For forjado não deve aparecer no log.
-    with caplog.at_level(logging.INFO, logger="classup.access"):
+    with caplog.at_level(logging.INFO, logger="myapp.access"):
         _client().get("/api/v1/health", headers={"X-Forwarded-For": "9.9.9.9"})
     assert not any("client=9.9.9.9" in r.getMessage() for r in caplog.records)
 
@@ -105,7 +105,7 @@ def test_rejection_is_logged_as_warning(
             )
         )
     )
-    with caplog.at_level(logging.WARNING, logger="classup.access"):
+    with caplog.at_level(logging.WARNING, logger="myapp.access"):
         response = client.get("/api/v1/health")
     assert response.status_code == 400
     assert any("-> 400" in record.getMessage() for record in caplog.records)
@@ -145,7 +145,7 @@ async def test_access_log_registra_500_quando_excecao_escapa(
         pass
 
     with (
-        caplog.at_level(_logging.ERROR, logger="classup.access"),
+        caplog.at_level(_logging.ERROR, logger="myapp.access"),
         pytest.raises(RuntimeError, match="escapou"),
     ):
         await middleware(scope, _receive, _send)

@@ -60,7 +60,7 @@ def make_prod_settings(**overrides: Any) -> Settings:
         "trusted_hosts": ["api.test"],
         "rate_limit_enabled": False,  # evita exigir redis na maioria dos testes
         "rate_limit_storage_uri": "memory://",
-        "minio_root_user": "classup-svc-7f3a",
+        "minio_root_user": "myapp-svc-7f3a",
         "minio_root_password": "S3nhaForteMinio123",
         "celery_broker_url": "redis://:S3nhaForteCelery123@redis-celery:6379/0",
         "celery_result_backend": "redis://:S3nhaForteCelery123@redis-celery:6379/1",

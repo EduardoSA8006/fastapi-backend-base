@@ -55,7 +55,7 @@ Design pré-aprovado no spec do MinIO (2026-06-02, seção "Fluxo de dados"):
 
 ### 5. E2E em modo production
 
-- Segundo stack (`-p classup-e2e-prod`, porta 18002), module-scoped e
+- Segundo stack (`-p myapp-e2e-prod`, porta 18002), module-scoped e
   sequencial ao dev (container_name fixo impede paralelismo): roda com
   `ENVIRONMENT=production`, senhas fortes geradas para o teste, usuário
   MinIO não-óbvio, `TRUSTED_HOSTS=["api.e2e.test"]`,

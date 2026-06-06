@@ -630,7 +630,7 @@ Adicionar ao bloco `services:` (antes de `api:`):
 ```yaml
   redis:
     image: redis:7-alpine
-    container_name: classup-redis
+    container_name: myapp-redis
     restart: unless-stopped
     ports:
       - "6379:6379"

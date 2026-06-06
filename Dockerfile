@@ -50,7 +50,7 @@ EXPOSE 8000
 # Healthcheck da própria API. O probe envia um header Host configurável via
 # HEALTHCHECK_HOST (default 127.0.0.1, que funciona em dev com TRUSTED_HOSTS=["*"]).
 # Em produção com TRUSTED_HOSTS restrito, defina HEALTHCHECK_HOST com um host
-# permitido (ex.: api.classup.com), senão o TrustedHostMiddleware responde 400 e
+# permitido (ex.: api.myapp.com), senão o TrustedHostMiddleware responde 400 e
 # o healthcheck falha. Não afrouxamos o TrustedHost para o loopback de propósito.
 # Bate em /api/v1/health (liveness, isento do rate-limit). Para readiness das
 # dependências (banco/Redis), use /api/v1/ready no orquestrador.

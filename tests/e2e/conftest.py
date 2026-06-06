@@ -2,12 +2,12 @@
 
 Dois stacks, SEQUENCIAIS (module-scoped — container_name é fixo e único por
 host, então nunca coexistem):
-- `stack` (classup-e2e, porta 18001): modo development — o stack como sobe
+- `stack` (myapp-e2e, porta 18001): modo development — o stack como sobe
   em dev.
-- `stack_prod` (classup-e2e-prod, porta 18002): ENVIRONMENT=production com
+- `stack_prod` (myapp-e2e-prod, porta 18002): ENVIRONMENT=production com
   credenciais fortes geradas para o teste — valida os guards VIVOS.
 
-Isolamento: cada projeto tem containers/volumes próprios (classup-e2e_*);
+Isolamento: cada projeto tem containers/volumes próprios (myapp-e2e_*);
 o teardown `down -v` remove SÓ os volumes do projeto — o stack/dados de dev
 do usuário não são tocados. Sobra de execução e2e anterior (teardown que
 falhou) é detectada pelo label de projeto do compose e removida; stack de
@@ -24,8 +24,8 @@ from typing import Any
 
 import pytest
 
-PROJECT_DEV = "classup-e2e"
-PROJECT_PROD = "classup-e2e-prod"
+PROJECT_DEV = "myapp-e2e"
+PROJECT_PROD = "myapp-e2e-prod"
 _E2E_PROJECTS = {PROJECT_DEV, PROJECT_PROD}
 
 PROD_HOST = "api.e2e.test"
@@ -71,14 +71,14 @@ def _wait_healthy(container: str, timeout_s: int) -> None:
 
 
 def _existing_stack_project() -> str | None:
-    """Projeto compose dono do container classup-api, se ele existir."""
+    """Projeto compose dono do container myapp-api, se ele existir."""
     result = _run(
         [
             "docker",
             "inspect",
             "-f",
             '{{index .Config.Labels "com.docker.compose.project"}}',
-            "classup-api",
+            "myapp-api",
         ],
         check=False,
     )
@@ -110,9 +110,9 @@ def _stack_lifecycle(project: str, env: dict[str, str]) -> Iterator[str]:
         # Build + up: primeiro build é demorado (imagem + poetry install).
         _run([*_compose(project), "up", "-d", "--build"], env=env, timeout=900)
         # api healthy implica db/redis/redis-celery/minio healthy (depends_on).
-        _wait_healthy("classup-api", timeout_s=300)
+        _wait_healthy("myapp-api", timeout_s=300)
         # worker: healthcheck = celery inspect ping real pelo broker.
-        _wait_healthy("classup-worker", timeout_s=180)
+        _wait_healthy("myapp-worker", timeout_s=180)
         yield f"http://127.0.0.1:{env['API_PORT']}"
     finally:
         _run(
@@ -137,7 +137,7 @@ def _prod_env() -> dict[str, str]:
         "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
         "REDIS_PASSWORD": secrets.token_urlsafe(24),
         "CELERY_REDIS_PASSWORD": secrets.token_urlsafe(24),
-        "MINIO_ROOT_USER": "classup-svc-e2e",
+        "MINIO_ROOT_USER": "myapp-svc-e2e",
         "MINIO_ROOT_PASSWORD": secrets.token_urlsafe(24),
         "TRUSTED_HOSTS": f'["{PROD_HOST}"]',
         "HEALTHCHECK_HOST": PROD_HOST,

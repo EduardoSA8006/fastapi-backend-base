@@ -6,7 +6,7 @@ Status: aprovado
 
 ## Objetivo
 
-Adicionar o MinIO como serviço de armazenamento de arquivos do ClassUp, rodando
+Adicionar o MinIO como serviço de armazenamento de arquivos do MyApp, rodando
 em container Docker **sem nada exposto ao host** — toda comunicação acontece pela
 rede interna do Docker, exatamente como o Redis e o Postgres já fazem. Nenhum
 cliente ou serviço fala com o MinIO diretamente: tudo passa pelo backend, que é o
@@ -35,7 +35,7 @@ Referência: o padrão já testado em produção no `portfolio-monorepo`
   operação de admin (exige `mc` ou a API admin REST; o minio-py só faz operações
   de objeto), e o portfolio de referência usa root direto. O least-privilege vem
   do **isolamento de rede + padrão proxy**, não de uma conta MinIO restrita — e
-  isso é consistente com o classup, onde Redis/Postgres usam senha forte + guards
+  isso é consistente com o myapp, onde Redis/Postgres usam senha forte + guards
   de produção, sem contas com escopo.
 - **Sem `ports:` — só `expose`, na mesma rede interna do db/redis.** Atende ao
   pedido literal: "via rede interna do docker igual ao redis e postgres". O
@@ -49,17 +49,17 @@ Referência: o padrão já testado em produção no `portfolio-monorepo`
 
 ### 1. `docker-compose.yml` — serviço `minio`
 
-Espelha o hardening do portfolio, adaptado ao estilo do classup (bloco
+Espelha o hardening do portfolio, adaptado ao estilo do myapp (bloco
 `environment:` com `${VAR:-default}`, igual db/redis):
 
 - `image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` (tag-pinned, como
-  postgres/redis do classup; nota para futuro digest-pin).
+  postgres/redis do myapp; nota para futuro digest-pin).
 - `command: ["server", "/data", "--console-address", ":9001"]` — console num
   porto que nunca é publicado nem exposto.
 - **Sem `ports:`**. Apenas `expose: ["9000"]`. Fica na rede default do compose
   (a mesma do db/redis/api) — alcançável só pelo hostname `minio`.
-- `environment`: `MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}`,
-  `MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}`. Mesma nota H3 já
+- `environment`: `MINIO_ROOT_USER: ${MINIO_ROOT_USER:-myapp}`,
+  `MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-myapp}`. Mesma nota H3 já
   presente no compose: em produção, prefira docker secrets / `/run/secrets`.
 - `volumes: ["minio_data:/data"]` (novo volume nomeado `minio_data`).
 - `healthcheck: ["CMD-SHELL", "mc ready local || exit 1"]` (a imagem traz `mc`,
@@ -73,19 +73,19 @@ Espelha o hardening do portfolio, adaptado ao estilo do classup (bloco
 - `environment` ganha:
   - `MINIO_ENDPOINT: minio:9000`
   - `MINIO_USE_SSL: "false"`
-  - `MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classup}`
-  - `MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classup}`
-  - `MINIO_BUCKET: ${MINIO_BUCKET:-classup-files}`
+  - `MINIO_ROOT_USER: ${MINIO_ROOT_USER:-myapp}`
+  - `MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-myapp}`
+  - `MINIO_BUCKET: ${MINIO_BUCKET:-myapp-files}`
 
-### 3. `app/core/config.py` — novas settings (convenção lowercase do classup)
+### 3. `app/core/config.py` — novas settings (convenção lowercase do myapp)
 
 ```python
 # MinIO (object storage, rede interna do Docker — sem porta publicada)
 minio_endpoint: str = "minio:9000"   # host:port, sem scheme; SSL via flag abaixo
 minio_use_ssl: bool = False
-minio_root_user: str = "classup"
-minio_root_password: str = "classup"
-minio_bucket: str = "classup-files"
+minio_root_user: str = "myapp"
+minio_root_password: str = "myapp"
+minio_bucket: str = "myapp-files"
 ```
 
 (O mapeamento de env do pydantic-settings é case-insensitive: `MINIO_ENDPOINT`
@@ -113,9 +113,9 @@ default/fraca) e idealmente docker secrets.
 # PRODUÇÃO: senha forte obrigatória (boot recusado com default/fraca/vazia).
 MINIO_ENDPOINT=minio:9000
 MINIO_USE_SSL=false
-MINIO_ROOT_USER=classup
-MINIO_ROOT_PASSWORD=classup
-MINIO_BUCKET=classup-files
+MINIO_ROOT_USER=myapp
+MINIO_ROOT_PASSWORD=myapp
+MINIO_BUCKET=myapp-files
 ```
 
 ## Fluxo de dados (futuro, documentado — fora do escopo de implementação agora)
@@ -134,10 +134,10 @@ uso, mapeando erros do SDK para exceções tipadas.
 Sem subir container real (mesma abordagem dos testes de config/guards atuais):
 
 - **Guard de produção**: `create_app(Settings(environment="production",
-  minio_root_password="classup", ...))` deve levantar `ValueError` (senha fraca
+  minio_root_password="myapp", ...))` deve levantar `ValueError` (senha fraca
   de MinIO recusada). Variante com senha forte deve passar pelo guard de MinIO.
 - **Defaults das settings**: `minio_endpoint == "minio:9000"`,
-  `minio_use_ssl is False`, `minio_bucket == "classup-files"`.
+  `minio_use_ssl is False`, `minio_bucket == "myapp-files"`.
 
 ## Fora de escopo (YAGNI)
 
@@ -146,5 +146,5 @@ Sem subir container real (mesma abordagem dos testes de config/guards atuais):
 - Dependência `minio` no `pyproject.toml` (entra com a camada de storage).
 - Conta de serviço com escopo / container `mc` de provisionamento.
 - Criação do bucket no boot (será lazy no primeiro uso).
-- Rede dedicada `storage_net` (o classup usa a rede default para db/redis; manter
+- Rede dedicada `storage_net` (o myapp usa a rede default para db/redis; manter
   consistência — segmentar só se surgirem outros serviços não confiáveis).

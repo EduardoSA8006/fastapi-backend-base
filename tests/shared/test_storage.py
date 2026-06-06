@@ -132,4 +132,4 @@ def test_minio_settings_defaults() -> None:
     settings = Settings()
     assert settings.minio_endpoint == "minio:9000"
     assert settings.minio_use_ssl is False
-    assert settings.minio_bucket == "classup-files"
+    assert settings.minio_bucket == "myapp-files"

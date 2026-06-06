@@ -1,7 +1,7 @@
 [project]
-name = "classup-backend"
+name = "myapp-backend"
 version = "0.1.0"
-description = "Backend da aplicação ClassUp em FastAPI"
+description = "Backend da aplicação MyApp em FastAPI"
 authors = [
     {name = "Eduardo8006",email = "eduardoalves8006@gmail.com"}
 ]
@@ -25,7 +25,7 @@ dependencies = [
 
 [tool.poetry]
 # A app roda via uvicorn (app/), não é um pacote distribuível. Sem isto, o
-# Poetry 2.x tenta instalar o pacote-raiz "classup-backend" (inexistente) e o
+# Poetry 2.x tenta instalar o pacote-raiz "myapp-backend" (inexistente) e o
 # `poetry install` falha — desnecessário usar --no-root em todo lugar.
 package-mode = false
 
@@ -107,7 +107,7 @@ asyncio_mode = "auto"
 addopts = '--cov=app --cov-report=term-missing --cov-fail-under=90 -m "not integration and not e2e"'
 markers = [
     "integration: exige Docker — infra real efêmera via testcontainers",
-    "e2e: exige Docker — sobe o stack compose isolado (classup-e2e) e ataca de fora com httpx",
+    "e2e: exige Docker — sobe o stack compose isolado (myapp-e2e) e ataca de fora com httpx",
 ]
 
 [dependency-groups]

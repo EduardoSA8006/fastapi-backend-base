@@ -107,9 +107,9 @@ def test_worker_e_minio_healthy_beat_rodando(stack: str) -> None:
     # minio healthy = `mc ready local` OK. beat: running (o healthy dele exige
     # start_period de 210s — fora do orçamento do e2e; o pipeline broker→worker
     # é coberto na integração).
-    worker = container_state("classup-worker")
-    minio = container_state("classup-minio")
-    beat = container_state("classup-beat")
+    worker = container_state("myapp-worker")
+    minio = container_state("myapp-minio")
+    beat = container_state("myapp-beat")
     assert worker.get("Health", {}).get("Status") == "healthy"
     assert minio.get("Health", {}).get("Status") == "healthy"
     assert beat.get("Status") == "running"
@@ -201,17 +201,14 @@ def test_worker_se_recupera_de_restart(stack: str) -> None:
     import time
 
     subprocess.run(
-        ["docker", "restart", "classup-worker"],
+        ["docker", "restart", "myapp-worker"],
         check=True,
         capture_output=True,
         timeout=60,
     )
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
-        if (
-            container_state("classup-worker").get("Health", {}).get("Status")
-            == "healthy"
-        ):
+        if container_state("myapp-worker").get("Health", {}).get("Status") == "healthy":
             return
         time.sleep(5)
     raise AssertionError("worker não voltou a healthy após restart")

@@ -63,7 +63,7 @@ def test_production_rejects_weak_redis_password() -> None:
         create_app(
             make_prod_settings(
                 rate_limit_enabled=True,
-                rate_limit_storage_uri="redis://:classup@redis:6379/0",
+                rate_limit_storage_uri="redis://:myapp@redis:6379/0",
             )
         )
 
@@ -83,7 +83,7 @@ def test_production_rejects_weak_db_password() -> None:
     with pytest.raises(ValueError, match="fraca"):
         create_app(
             make_prod_settings(
-                database_url="postgresql+psycopg://classup:classup@db:5432/classup"
+                database_url="postgresql+psycopg://myapp:myapp@db:5432/myapp"
             )
         )
 
@@ -92,7 +92,7 @@ def test_production_accepts_strong_db_password() -> None:
     app = create_app(
         make_prod_settings(
             database_url=(
-                "postgresql+psycopg://classup:S3nhaForteAleatoria123@db:5432/classup"
+                "postgresql+psycopg://myapp:S3nhaForteAleatoria123@db:5432/myapp"
             )
         )
     )
@@ -102,7 +102,7 @@ def test_production_accepts_strong_db_password() -> None:
 def test_production_without_trust_proxy_warns(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    with caplog.at_level(logging.WARNING, logger="classup"):
+    with caplog.at_level(logging.WARNING, logger="myapp"):
         create_app(
             make_prod_settings(
                 rate_limit_enabled=True,
@@ -118,7 +118,7 @@ def test_production_with_trust_proxy_warns(
 ) -> None:
     # O risco simétrico: TRUST_PROXY=true sem proxy real permite spoofing de XFF.
     # Não falha o boot (config legítima atrás de LB), mas avisa explicitamente.
-    with caplog.at_level(logging.WARNING, logger="classup"):
+    with caplog.at_level(logging.WARNING, logger="myapp"):
         create_app(
             make_prod_settings(
                 rate_limit_enabled=True,
@@ -129,10 +129,10 @@ def test_production_with_trust_proxy_warns(
     assert any("forja o IP" in r.getMessage() for r in caplog.records)
 
 
-@pytest.mark.parametrize("weak", ["classup", "classup-minio-dev"])
+@pytest.mark.parametrize("weak", ["myapp", "myapp-minio-dev"])
 def test_production_rejects_weak_minio_password(weak: str) -> None:
     # Paridade com Redis/DB: senha default/fraca do MinIO não pode ir a produção.
-    # Inclui o default de dev "classup-minio-dev" (público no repositório).
+    # Inclui o default de dev "myapp-minio-dev" (público no repositório).
     with pytest.raises(ValueError, match="MinIO"):
         create_app(make_prod_settings(minio_root_password=weak))
 
@@ -149,7 +149,7 @@ def test_production_accepts_strong_minio_password() -> None:
     assert app is not None
 
 
-@pytest.mark.parametrize("weak_user", ["classup", "admin", "minio", "root", ""])
+@pytest.mark.parametrize("weak_user", ["myapp", "admin", "minio", "root", ""])
 def test_production_rejects_predictable_minio_user(weak_user: str) -> None:
     # Defesa-em-profundidade: usuário admin previsível do MinIO não vai a
     # produção (facilita enumeração se a porta vazar). Senha forte na base.
@@ -159,5 +159,5 @@ def test_production_rejects_predictable_minio_user(weak_user: str) -> None:
 
 def test_production_accepts_non_obvious_minio_user() -> None:
     # Usuário não-óbvio (e senha forte) passa pelo guard.
-    app = create_app(make_prod_settings(minio_root_user="classup-svc-9b2c"))
+    app = create_app(make_prod_settings(minio_root_user="myapp-svc-9b2c"))
     assert app is not None

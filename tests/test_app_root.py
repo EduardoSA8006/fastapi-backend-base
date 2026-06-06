@@ -27,7 +27,7 @@ def test_root_em_producao_nao_anuncia_docs() -> None:
 def test_redoc_e_titulo_do_openapi_em_dev() -> None:
     # Pina o wiring do FastAPI no composition root (mutantes sobreviventes:
     # redoc_url=None e title mutado passavam despercebidos).
-    client = make_client(app_name="ClassUp QA")
+    client = make_client(app_name="MyApp QA")
     assert client.get("/redoc").status_code == 200
     openapi = client.get("/openapi.json").json()
-    assert openapi["info"]["title"] == "ClassUp QA"
+    assert openapi["info"]["title"] == "MyApp QA"

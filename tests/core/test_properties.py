@@ -137,7 +137,7 @@ def test_json_formatter_sempre_uma_linha_json_valida(payload: str) -> None:
     # Propriedade anti log-injection: o conteúdo controlado pelo cliente sai
     # escapado — uma única linha, JSON parseável, payload preservado.
     record = logging.LogRecord(
-        name="classup.test",
+        name="myapp.test",
         level=logging.INFO,
         pathname=__file__,
         lineno=1,

@@ -74,9 +74,9 @@ def test_unavailable_e_logado_como_error(
     import logging
 
     client = _client_with_raising_route(UnavailableError("MinIO fora do ar."))
-    with caplog.at_level(logging.ERROR, logger="classup.errors"):
+    with caplog.at_level(logging.ERROR, logger="myapp.errors"):
         client.get("/_boom")
-    records = [r for r in caplog.records if r.name == "classup.errors"]
+    records = [r for r in caplog.records if r.name == "myapp.errors"]
     assert records, "UnavailableError não foi logado"
     assert "MinIO fora do ar." in records[0].getMessage()
 
@@ -86,9 +86,9 @@ def test_not_found_nao_gera_log_de_erro(caplog: Any) -> None:
     import logging
 
     client = _client_with_raising_route(NotFoundError("x"))
-    with caplog.at_level(logging.WARNING, logger="classup.errors"):
+    with caplog.at_level(logging.WARNING, logger="myapp.errors"):
         client.get("/_boom")
-    assert not [r for r in caplog.records if r.name == "classup.errors"]
+    assert not [r for r in caplog.records if r.name == "myapp.errors"]
 
 
 def test_resposta_de_erro_preserva_security_headers() -> None:

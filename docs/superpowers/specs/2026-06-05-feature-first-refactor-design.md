@@ -6,7 +6,7 @@ Status: aprovado
 
 ## Objetivo
 
-Reorganizar o esqueleto do ClassUp para a arquitetura padrão do usuário
+Reorganizar o esqueleto do MyApp para a arquitetura padrão do usuário
 (feature-first + core + shared + MVVM), preparando o terreno para as features
 de domínio — **sem mudar comportamento**: mesmas rotas, mesmos guards, mesma
 config, compose intocado. Refatoração estrutural pura (git mv + ajuste de
