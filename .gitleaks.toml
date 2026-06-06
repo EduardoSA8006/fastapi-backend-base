@@ -1,0 +1,17 @@
+# Config do gitleaks: regras default + allowlist das credenciais FAKE de teste.
+#
+# As fixtures usam senhas falsas com a convenção "S3nhaForte*/S3nhaTeste*"
+# (exercitam os guards de produção que RECUSAM senhas fracas). Allowlist por
+# REGEX da convenção — não por caminho: um segredo real commitado em tests/
+# continua sendo detectado.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Senhas fake de fixtures (convenção S3nhaForte*/S3nhaTeste*)"
+regexTarget = "match"
+regexes = [
+  '''S3nha(?:Forte|Teste)[A-Za-z0-9]*''',
+  '''OutraS3nhaForte[A-Za-z0-9]*''',
+]
