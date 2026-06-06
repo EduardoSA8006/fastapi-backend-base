@@ -1,76 +1,85 @@
-# MyApp Backend
+# FastAPI Backend Base
 
-Backend da aplicação MyApp construído com **FastAPI**, **SQLAlchemy** e **Alembic**, gerenciado com **Poetry**.
+Template de backend **FastAPI** com segurança fail-closed por padrão, arquitetura
+feature-first e três níveis de teste prontos — pensado para iniciar projetos
+novos já com a fundação que normalmente leva semanas para endurecer.
 
-## Requisitos
+> Os nomes usam o placeholder **`myapp`/`MyApp`**: ao criar seu projeto,
+> faça um find/replace global pelos nomes reais e está pronto.
 
-- Python `>=3.11,<3.15`
-- [Poetry](https://python-poetry.org/) `>=2.0`
+## O que vem na base
 
-## Instalação
+- **Arquitetura feature-first + core/shared (MVVM semântico)** — contrato de
+  feature documentado (`router`/`service`/`repository`/`models`/`schemas`/
+  `exceptions`/`tasks`), regras de dependência claras (feature nunca importa
+  feature) e composition root enxuto: toda a política de segurança vive em
+  `core/security_guards.py`, testável isoladamente.
+- **Guards fail-closed de produção** — em `ENVIRONMENT=production` o boot é
+  RECUSADO com: hosts curinga, rate-limit em memória, `DEBUG=true`, senha
+  fraca/default em banco/Redis/MinIO/Celery, usuário MinIO previsível ou
+  broker do Celery na mesma instância do Redis do rate-limit. `ENVIRONMENT`
+  é obrigatório (sem default — typo no nome da variável não cai em modo dev).
+- **Camada de erros completa** — hierarquia `AppException` + handler global,
+  `ErrorBoundary` ASGI (500 padronizado/blindado, nunca text/plain), access
+  log JSON estruturado com `X-Request-ID` correlacionado até no crash.
+- **Infra Docker segura por padrão** — Postgres, Redis (rate-limit),
+  Redis dedicado do Celery (comandos destrutivos desativados), MinIO e
+  worker/beat Celery **sem nenhuma porta publicada**; 3 redes segmentadas
+  (worker não tem rota até o Redis do rate-limit); API só em loopback;
+  containers endurecidos (read-only, cap_drop ALL, limites).
+- **Celery endurecido** — serialização json-only nas três superfícies,
+  `acks_late`, prefetch 1, time limits; task `core.ping` como heartbeat do
+  beat; storage MinIO com facade async (`shared/storage.py`), bucket lazy e
+  erros tipados.
+- **Três níveis de teste prontos** (+ ferramentas de profundidade):
+
+| Nível | Comando | O que cobre |
+|---|---|---|
+| Unitário | `poetry run pytest` | 181 testes, gate de cobertura 90%, property-based (Hypothesis) nos pontos críticos |
+| Integração | `poetry run pytest -m integration --no-cov` | Postgres/Redis/MinIO/broker REAIS (testcontainers), migrações, cenários de falha e recuperação |
+| E2E | `poetry run pytest -m e2e --no-cov` | stack compose completo via httpx, modo dev E production, invariante de isolamento de rede |
+| Mutation | `poetry run mutmut run` | métrica local de força das asserções (config pronta) |
+
+- **CI completo** (GitHub Actions, SHA-pinned, Node 24): lint (ruff+bandit),
+  mypy `--strict`, os 3 níveis de teste, pip-audit, gitleaks e trivy.
+
+## Como usar este template
+
+1. **Use this template** no GitHub (ou clone) e renomeie:
 
 ```bash
+# dentro do projeto novo
+grep -rl "myapp" --exclude-dir=.git . | xargs sed -i 's/myapp/seuprojeto/g; s/MyApp/SeuProjeto/g'
+```
+
+2. Configure e rode:
+
+```bash
+cp .env.example .env   # ENVIRONMENT é obrigatório — o exemplo já traz development
 poetry install
+poetry run pytest      # 181 verdes antes de qualquer linha sua
 ```
 
-Copie o arquivo de exemplo de variáveis de ambiente:
-
-```bash
-cp .env.example .env
-```
-
-## Executando a aplicação
-
-```bash
-poetry run uvicorn app.main:app --reload
-```
-
-A API ficará disponível em `http://127.0.0.1:8000`.
-
-- Documentação interativa (Swagger): `http://127.0.0.1:8000/docs`
-- Liveness (raso, não toca dependências): `http://127.0.0.1:8000/api/v1/health`
-- Readiness (checa banco + Redis; 503 se algo está fora): `http://127.0.0.1:8000/api/v1/ready`
-
-> **Liveness × readiness**: use `/health` para o orquestrador decidir
-> **reiniciar** um processo travado (não depende de banco/Redis) e `/ready` para
-> tirar a réplica do balanceador quando uma **dependência está fora** (sem
-> reiniciar). Ambos são **isentos do rate-limit** (não consomem cota e funcionam
-> com o store fora).
-
-## Executando com Docker (API + PostgreSQL)
-
-O `docker-compose.yml` sobe dois serviços: a **API** e o **PostgreSQL 16**.
-Na inicialização, o container da API aguarda o banco, aplica as migrações
-(`alembic upgrade head`) e então inicia o Uvicorn.
+3. Suba o stack completo (API + Postgres + Redis ×2 + MinIO + Celery):
 
 ```bash
 docker compose up -d --build
+# API: http://127.0.0.1:8001 (Swagger em /docs; /api/v1/health e /api/v1/ready)
 ```
 
-- API: `http://localhost:8001` (Swagger em `/docs`, healthcheck em `/api/v1/health`)
-- PostgreSQL e Redis: **sem porta no host** — acessíveis apenas pela rede
-  interna do Docker, exclusivamente através da API (hostnames `db` e `redis`).
+4. Crie sua primeira feature em `app/features/<nome>/` seguindo o contrato
+   (ver "Estrutura do projeto" abaixo) — models entram no `alembic/env.py`,
+   tasks no `include` de `app/worker.py`.
 
-> A **API é o único serviço exposto ao host**. Postgres e Redis não publicam
-> portas; toda comunicação com eles passa obrigatoriamente pela API. A porta da
-> API no host é **8001** por padrão (mapeada para a 8000 do container); para
-> trocar, defina `API_PORT` no `.env` ou no ambiente.
->
-> Para inspecionar o banco/redis manualmente, use `docker compose exec db ...`
-> ou `docker compose exec redis redis-cli` (dentro da rede), não uma conexão
-> direta do host.
+## Requisitos
 
-Variáveis configuráveis (com valores padrão): `POSTGRES_USER`, `POSTGRES_PASSWORD`,
-`POSTGRES_DB`, `API_PORT`. Veja `.env.example`.
+- Python `>=3.12,<3.15` · [Poetry](https://python-poetry.org/) `>=2.0`
+- Docker + Docker Compose (stack local, integração e e2e)
 
-Comandos úteis:
+---
 
-```bash
-docker compose logs -f api     # acompanha os logs da API
-docker compose exec api bash   # shell dentro do container da API
-docker compose down            # para os containers
-docker compose down -v         # para e remove o volume do banco
-```
+A documentação abaixo cobre em profundidade as decisões de segurança e
+operação da base — vale a leitura antes do primeiro deploy.
 
 ## Segurança
 
