@@ -8,7 +8,7 @@ from sqlalchemy import engine_from_config, pool
 #   import app.features.<nome>.models
 # (Hoje não há nenhum model — o domínio ainda não foi implementado.)
 from alembic import context
-from app.core.config import settings
+from app.core.config import get_settings
 from app.core.database import Base
 
 # this is the Alembic Config object, which provides
@@ -16,7 +16,7 @@ from app.core.database import Base
 config = context.config
 
 # Injeta a URL do banco a partir das configurações da aplicação.
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

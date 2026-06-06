@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from minio.error import S3Error
 
+from app.core.config import Settings
 from app.shared import storage
 from app.shared.exceptions import NotFoundError, UnavailableError
 from app.shared.storage import (
@@ -124,3 +125,11 @@ async def test_get_devolve_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     _use_stub(monkeypatch, _StubClient())
     data = await storage.get_object(bucket="b", key="k")
     assert data == b"conteudo"
+
+
+def test_minio_settings_defaults() -> None:
+    # Defaults coerentes com o compose (rede interna, hostname `minio`).
+    settings = Settings()
+    assert settings.minio_endpoint == "minio:9000"
+    assert settings.minio_use_ssl is False
+    assert settings.minio_bucket == "classup-files"

@@ -122,4 +122,7 @@ def get_settings() -> Settings:
     return Settings()
 
 
-settings = get_settings()
+# Deliberadamente NÃO há `settings` global de módulo: instanciar Settings no
+# import exigiria ENVIRONMENT para sequer importar o módulo e criaria um
+# segundo caminho de acesso (footgun análogo ao removido do database.py).
+# A app usa app.state.settings; processos fora do app chamam get_settings().
