@@ -1,5 +1,11 @@
 # FastAPI Backend Base
 
+[![CI](https://github.com/EduardoSA8006/fastapi-backend-base/actions/workflows/ci.yml/badge.svg)](https://github.com/EduardoSA8006/fastapi-backend-base/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+[🇺🇸 English version](README.en.md)
+
 Template de backend **FastAPI** com segurança fail-closed por padrão, arquitetura
 feature-first e três níveis de teste prontos — pensado para iniciar projetos
 novos já com a fundação que normalmente leva semanas para endurecer.
@@ -75,6 +81,30 @@ docker compose up -d --build
 
 - Python `>=3.12,<3.15` · [Poetry](https://python-poetry.org/) `>=2.0`
 - Docker + Docker Compose (stack local, integração e e2e)
+
+## Serviços Docker
+
+O `docker-compose.yml` sobe 7 serviços segmentados em 3 redes internas:
+
+| Serviço | Imagem | Porta publicada | Redes | Propósito |
+|---|---|---|---|---|
+| `api` | build local | `127.0.0.1:8001` | data, ratelimit, celery | FastAPI + Uvicorn |
+| `worker` | build local | — | data, celery | Celery worker (2 concorrências) |
+| `beat` | build local | — | data, celery | Celery beat — scheduler periódico |
+| `db` | `postgres:16-alpine` | — | data | PostgreSQL (dados persistentes) |
+| `redis` | `redis:7-alpine` | — | ratelimit | Store do rate-limit (exclusivo) |
+| `redis-celery` | `redis:7-alpine` | — | celery | Broker + result backend do Celery |
+| `minio` | `quay.io/minio/minio` | — | data | Object storage S3-compatible |
+
+**Redes internas** (isolamento least-privilege):
+
+| Rede | Membros | Propósito |
+|---|---|---|
+| `data_net` | api, worker, beat, db, minio | Acesso ao banco e storage |
+| `ratelimit_net` | api, redis | Exclusiva do rate-limit — worker/beat sem rota até essas chaves |
+| `celery_net` | api, worker, beat, redis-celery | Broker e result backend |
+
+Nenhum serviço além da `api` expõe porta ao host. A `api` liga em loopback (`127.0.0.1`) por padrão — ajuste `API_BIND` para expor em outras interfaces conscientemente.
 
 ---
 
@@ -366,3 +396,95 @@ Anatomia de uma feature: `router.py` (View — HTTP puro), `service.py`
 `schemas.py` (DTOs), `exceptions.py` (herdam de `shared.exceptions`),
 `tasks.py` (Celery). Regras de dependência: features → core/shared;
 shared → core; feature nunca importa de outra feature.
+
+## Referência de variáveis de ambiente
+
+Todas as variáveis lidas pelo `Settings` (via `pydantic-settings`). Os defaults abaixo se aplicam quando a variável está ausente — exceto `ENVIRONMENT`, que é obrigatória.
+
+### Aplicação
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `ENVIRONMENT` | — **obrigatório** | `development` \| `staging` \| `production` |
+| `APP_NAME` | `MyApp Backend` | Nome exibido na rota `/` e na documentação |
+| `DEBUG` | `false` | Modo debug — proibido em produção |
+| `API_V1_PREFIX` | `/api/v1` | Prefixo de todas as rotas da API |
+
+### Banco de dados
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./myapp.db` | URL de conexão (SQLite em dev; Postgres no Docker) |
+
+> No Docker o compose injeta `postgresql+psycopg://...@db:5432/myapp`.
+> Em produção externa, acrescente `?sslmode=require`.
+
+### Rate-limit
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `RATE_LIMIT_ENABLED` | `true` | Habilita o rate-limit global |
+| `RATE_LIMIT_DEFAULT` | `100/minute` | Limite global por IP |
+| `RATE_LIMIT_STORAGE_URI` | `memory://` | Store do limiter — **use `redis://` em produção** |
+
+### CORS
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `CORS_ALLOW_ORIGINS` | `[]` | Lista JSON de origens permitidas |
+| `CORS_ALLOW_CREDENTIALS` | `false` | Permite cookies/auth — **nunca com `origins=["*"]`** |
+| `CORS_ALLOW_METHODS` | `["*"]` | Métodos HTTP permitidos |
+| `CORS_ALLOW_HEADERS` | `["*"]` | Headers permitidos |
+
+### Segurança e proxy
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `TRUSTED_HOSTS` | `["*"]` | Hosts aceitos no header `Host` — **defina em produção** |
+| `MAX_BODY_SIZE` | `1048576` | Limite de corpo em bytes (1 MB) |
+| `HSTS_ENABLED` | `false` | Emite `Strict-Transport-Security` — só com HTTPS ativo |
+| `TRUST_PROXY` | `false` | Extrai IP real de `X-Forwarded-For` |
+| `NUM_TRUSTED_PROXIES` | `1` | Quantidade de proxies confiáveis à frente |
+| `LOG_CLIENT_IP` | `true` | Registra IP nos logs (dado pessoal — LGPD/GDPR) |
+| `READINESS_CACHE_SECONDS` | `3.0` | TTL do cache do `/ready` em segundos |
+
+### MinIO
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `MINIO_ENDPOINT` | `minio:9000` | `host:porta` do MinIO (sem scheme) |
+| `MINIO_USE_SSL` | `false` | TLS para conexão com o MinIO |
+| `MINIO_ROOT_USER` | `myapp` | Usuário admin — **nome não-óbvio obrigatório em produção** |
+| `MINIO_ROOT_PASSWORD` | `myapp-minio-dev` | Senha admin — **senha forte obrigatória em produção** |
+| `MINIO_BUCKET` | `myapp-files` | Bucket padrão (criado automaticamente se ausente) |
+
+### Celery
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `CELERY_BROKER_URL` | `redis://:myapp@redis-celery:6379/0` | URL do broker |
+| `CELERY_RESULT_BACKEND` | `redis://:myapp@redis-celery:6379/1` | URL do result backend |
+| `CELERY_TASK_ALWAYS_EAGER` | `false` | Execução síncrona in-process (apenas para testes) |
+| `CELERY_HEARTBEAT_SECONDS` | `60.0` | Cadência do heartbeat do beat |
+
+### Docker Compose (não lidas pelo `Settings`)
+
+Variáveis usadas apenas pelo `docker-compose.yml` e pelo `entrypoint.sh`:
+
+| Variável | Default | Descrição |
+|---|---|---|
+| `POSTGRES_USER` | `myapp` | Usuário criado no container do Postgres |
+| `POSTGRES_PASSWORD` | `myapp` | Senha do Postgres |
+| `POSTGRES_DB` | `myapp` | Banco criado no container |
+| `REDIS_PASSWORD` | `myapp` | Senha do Redis do rate-limit |
+| `CELERY_REDIS_PASSWORD` | `myapp` | Senha do Redis do Celery |
+| `RUN_MIGRATIONS_ON_START` | `true` | Executa `alembic upgrade head` no boot do container |
+| `HEALTHCHECK_HOST` | `127.0.0.1` | Header `Host` enviado pelo healthcheck do container |
+| `API_BIND` | `127.0.0.1` | Interface de bind da porta da API |
+| `API_PORT` | `8001` | Porta publicada no host |
+
+---
+
+## Licença
+
+Distribuído sob a [licença MIT](LICENSE).
