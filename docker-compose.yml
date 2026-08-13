@@ -7,7 +7,7 @@
 #                   dedicados); a api entra só para despachar .delay().
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: myapp-db
     restart: unless-stopped
     networks:
@@ -16,6 +16,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-myapp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myapp}
       POSTGRES_DB: ${POSTGRES_DB:-myapp}
+      # PG18 mudou o PGDATA default (inclui a major). Fixa no caminho do mount
+      # para preservar o volume postgres_data:/var/lib/postgresql/data.
+      PGDATA: /var/lib/postgresql/data
     # Sem `ports:` — o Postgres NÃO é exposto ao host. Acessível apenas pela
     # rede interna do Docker (pelo serviço `api`), via o hostname `db`.
     expose:
@@ -29,7 +32,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: myapp-redis
     restart: unless-stopped
     # Exige senha mesmo na rede interna (um container comprometido não conecta
@@ -48,7 +51,7 @@ services:
       - ratelimit_net
 
   redis-celery:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: myapp-redis-celery
     restart: unless-stopped
     # Broker + result backend DEDICADOS do Celery — instância separada do
@@ -101,7 +104,7 @@ services:
       - celery_net
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772
     container_name: myapp-minio
     restart: unless-stopped
     # `server /data` sobe o object store. `--console-address :9001` prende o
