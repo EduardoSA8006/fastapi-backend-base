@@ -127,3 +127,53 @@ async def test_ping_in_memory_returns_pong(monkeypatch: pytest.MonkeyPatch) -> N
         assert result.return_value == "pong"
     finally:
         await broker.shutdown()
+
+
+def test_healthcheck_ping_sem_schedule_e_task_dedicada() -> None:
+    # A probe de liveness do worker é uma task SEPARADA, sem schedule: não é
+    # disparada pelo scheduler e não pode renovar o marcador de heartbeat.
+    from app.worker import healthcheck_ping, ping
+
+    assert healthcheck_ping.task_name == "core.healthcheck_ping"
+    assert healthcheck_ping.task_name != ping.task_name
+    assert not healthcheck_ping.labels.get("schedule"), (
+        "core.healthcheck_ping não pode ter schedule (só o worker o enfileira)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_healthcheck_ping_nao_grava_marcador(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Invariante do fix: o probe do worker faz round-trip ("pong") mas NUNCA
+    # toca o marcador do scheduler — caso contrário mascararia um scheduler
+    # morto. Espiona redis.asyncio.from_url: se a task o chamasse, falharia.
+    monkeypatch.setenv("TASKIQ_IN_MEMORY", "true")
+    import redis.asyncio as aioredis
+
+    def _boom(*_a: Any, **_k: Any) -> object:
+        raise AssertionError("healthcheck_ping não pode abrir conexão Redis")
+
+    monkeypatch.setattr(aioredis, "from_url", _boom)
+
+    from app.worker import broker, healthcheck_ping
+
+    await broker.startup()
+    try:
+        task = await healthcheck_ping.kiq()
+        result = await task.wait_result(timeout=5)
+        assert result.return_value == "pong"
+    finally:
+        await broker.shutdown()
+
+
+def test_worker_healthcheck_usa_task_dedicada() -> None:
+    # O healthcheck do container worker deve enfileirar a probe dedicada, não o
+    # `ping` agendado (que grava o marcador). Garante que o módulo não regrida.
+    import app.worker_healthcheck as hc
+    from app.worker import healthcheck_ping
+
+    assert getattr(hc, "healthcheck_ping") is healthcheck_ping  # noqa: B009
+    assert not hasattr(hc, "ping"), (
+        "worker_healthcheck não deve importar/usar o ping agendado"
+    )

@@ -72,11 +72,14 @@ scheduler = TaskiqScheduler(broker=broker, sources=[LabelScheduleSource(broker)]
     schedule=[{"interval": timedelta(seconds=settings.taskiq_heartbeat_seconds)}],
 )
 async def ping() -> str:
-    """Task de debug/heartbeat: valida o pipeline scheduler→broker→worker.
+    """Task AGENDADA de heartbeat: valida o pipeline scheduler→broker→worker.
 
-    Idempotente. Além de retornar "pong", grava um marcador de heartbeat com
-    TTL (3x a cadência) — o healthcheck do container scheduler usa o frescor
-    desse marcador como sinal de vida do pipeline inteiro.
+    ÚNICA escritora do marcador `myapp:taskiq:heartbeat`. Idempotente. Além de
+    retornar "pong", grava o marcador com TTL (3x a cadência) — o healthcheck do
+    container scheduler usa o frescor desse marcador como sinal de vida do
+    pipeline inteiro. Como só o disparo agendado renova o marcador, um scheduler
+    morto (mesmo com worker vivo) deixa o marcador expirar e o healthcheck do
+    scheduler falha — o probe do worker (core.healthcheck_ping) NÃO o mascara.
 
     Em modo in-memory (testes/CI) não há Redis real nem container scheduler,
     então o marcador não teria consumidor: pula a escrita. O round-trip do
@@ -91,4 +94,16 @@ async def ping() -> str:
             await client.set(HEARTBEAT_KEY, "pong", ex=ttl)
         finally:
             await client.aclose()
+    return "pong"
+
+
+@broker.task(task_name="core.healthcheck_ping")
+async def healthcheck_ping() -> str:
+    """Probe de liveness do WORKER: round-trip puro pelo broker, SEM marcador.
+
+    Enfileirada pelo healthcheck do container worker (a cada 30s). Diferente do
+    `ping` agendado, NÃO grava `myapp:taskiq:heartbeat`: assim o probe frequente
+    do worker não renova o marcador do scheduler e não pode mascarar um scheduler
+    morto. Prova exclusivamente que o loop de consumo do worker está saudável.
+    """
     return "pong"

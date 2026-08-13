@@ -43,7 +43,7 @@ with the foundation that usually takes weeks to harden.
 
 | Level | Command | What it covers |
 |---|---|---|
-| Unit | `uv run pytest` | 181 tests, 90% coverage gate, property-based (Hypothesis) on critical points |
+| Unit | `uv run pytest` | 185 tests, 90% coverage gate, property-based (Hypothesis) on critical points |
 | Integration | `uv run pytest -m integration --no-cov` | Real Postgres/Redis/MinIO/broker (testcontainers), migrations, failure and recovery scenarios |
 | E2E | `uv run pytest -m e2e --no-cov` | Full compose stack via httpx, dev AND production mode, network isolation invariant |
 | Mutation | `uv run mutmut run` | Local assertion-strength metric (config ready) |
@@ -65,7 +65,7 @@ grep -rl "myapp" --exclude-dir=.git . | xargs sed -i 's/myapp/yourproject/g; s/M
 ```bash
 cp .env.example .env   # ENVIRONMENT is required — the example ships with development
 uv sync
-uv run pytest          # 181 green before any line of yours
+uv run pytest          # 185 green before any line of yours
 ```
 
 3. Bring up the full stack (API + Postgres + Redis ×2 + MinIO + TaskIQ):

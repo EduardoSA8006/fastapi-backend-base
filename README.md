@@ -44,7 +44,7 @@ novos já com a fundação que normalmente leva semanas para endurecer.
 
 | Nível | Comando | O que cobre |
 |---|---|---|
-| Unitário | `uv run pytest` | 181 testes, gate de cobertura 90%, property-based (Hypothesis) nos pontos críticos |
+| Unitário | `uv run pytest` | 185 testes, gate de cobertura 90%, property-based (Hypothesis) nos pontos críticos |
 | Integração | `uv run pytest -m integration --no-cov` | Postgres/Redis/MinIO/broker REAIS (testcontainers), migrações, cenários de falha e recuperação |
 | E2E | `uv run pytest -m e2e --no-cov` | stack compose completo via httpx, modo dev E production, invariante de isolamento de rede |
 | Mutation | `uv run mutmut run` | métrica local de força das asserções (config pronta) |
@@ -66,7 +66,7 @@ grep -rl "myapp" --exclude-dir=.git . | xargs sed -i 's/myapp/seuprojeto/g; s/My
 ```bash
 cp .env.example .env   # ENVIRONMENT é obrigatório — o exemplo já traz development
 uv sync
-uv run pytest          # 181 verdes antes de qualquer linha sua
+uv run pytest          # 185 verdes antes de qualquer linha sua
 ```
 
 3. Suba o stack completo (API + Postgres + Redis ×2 + MinIO + TaskIQ):
