@@ -44,9 +44,14 @@ def _build_broker() -> AsyncBroker:
     if settings.taskiq_in_memory:
         return InMemoryBroker().with_serializer(ORJSONSerializer())
 
+    # serializer= EXPLÍCITO: o taskiq-redis usa PickleSerializer por default no
+    # result backend e o .with_serializer() do broker NÃO propaga para cá —
+    # sem isto, wait_result() rodaria pickle.loads() em bytes do Redis DB 1
+    # (vetor de RCE). ORJSON força JSON-only também na leitura de resultados.
     result_backend: RedisAsyncResultBackend[object] = RedisAsyncResultBackend(
         redis_url=settings.taskiq_result_backend,
         result_ex_time=86400,
+        serializer=ORJSONSerializer(),
     )
     return (
         RedisStreamBroker(url=settings.taskiq_broker_url)
