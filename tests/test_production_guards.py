@@ -1,7 +1,7 @@
 """Guards fail-closed de produção (ENVIRONMENT=production) e warnings.
 
 Cada teste quebra UM aspecto do baseline válido (make_prod_settings) para
-exercitar o guard alvo. Os guards do Celery vivem em tests/test_celery.py.
+exercitar o guard alvo. Os guards do TaskIQ vivem em tests/test_taskiq.py.
 """
 
 import logging

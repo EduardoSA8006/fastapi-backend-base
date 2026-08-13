@@ -12,6 +12,12 @@ import os
 
 os.environ.setdefault("ENVIRONMENT", "development")
 
+# A suíte unitária roda a fila in-process (InMemoryBroker): o broker é
+# construído no import de app.worker a partir de Settings.taskiq_in_memory —
+# definir ANTES de qualquer import de app.worker. Integração/e2e sobem broker
+# real (override explícito no env do subprocesso/compose).
+os.environ.setdefault("TASKIQ_IN_MEMORY", "true")
+
 # O pytest é o DONO dos handlers do root durante a suíte (caplog injeta os
 # seus). configure_logging agora substitui handlers pré-existentes do root
 # (correção do no-op sob gunicorn) — se rodasse aqui, removeria os handlers
@@ -62,8 +68,8 @@ def make_prod_settings(**overrides: Any) -> Settings:
         "rate_limit_storage_uri": "memory://",
         "minio_root_user": "myapp-svc-7f3a",
         "minio_root_password": "S3nhaForteMinio123",
-        "celery_broker_url": "redis://:S3nhaForteCelery123@redis-celery:6379/0",
-        "celery_result_backend": "redis://:S3nhaForteCelery123@redis-celery:6379/1",
+        "taskiq_broker_url": "redis://:S3nhaForteTaskiq123@redis-taskiq:6379/0",
+        "taskiq_result_backend": "redis://:S3nhaForteTaskiq123@redis-taskiq:6379/1",
     }
     base.update(overrides)
     return Settings(**base)
