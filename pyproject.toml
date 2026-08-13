@@ -14,10 +14,14 @@ dependencies = [
     "pydantic-settings>=2.15.0,<3.0.0",
     "psycopg[binary]>=3.3.4,<4.0.0",
     "slowapi>=0.1.10,<0.2.0",
-    # redis: kombu (Celery) capa em <6.5; a interseção resolve para 6.4.x.
-    # Sai da trava só na Fase 4 (TaskIQ exige redis>=8; Celery/kombu saem).
-    "redis>=6.4.0,<9.0.0",
-    "celery[redis]>=5.6,<6.0",
+    # redis-py 8.x: exigido pelo taskiq-redis (Celery/kombu, que capavam em
+    # <6.5, saíram). Cliente único serve fila E rate-limit.
+    "redis>=8.0.0,<9.0.0",
+    "taskiq>=0.12.4,<0.13.0",
+    "taskiq-redis>=1.2.3,<2.0.0",
+    # ORJSONSerializer (JSON-only, sem pickle) exige orjson em runtime; o
+    # taskiq não o traz transitivamente. Fixa a serialização segura da fila.
+    "orjson>=3.10,<4.0.0",
     "minio>=7.2.20,<8.0.0",
 ]
 
@@ -81,13 +85,18 @@ module = ["slowapi.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# celery e testcontainers não distribuem informações de tipo (py.typed).
-module = ["celery.*", "celery", "testcontainers.*"]
+# testcontainers não distribui informações de tipo (py.typed).
+module = ["testcontainers.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# O decorator @celery_app.task não é tipado (celery sem py.typed);
-# em strict isso reprovaria toda task. Relaxa só neste módulo.
+# taskiq_redis não distribui informações de tipo (py.typed).
+module = ["taskiq_redis.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# O decorator @broker.task não é totalmente tipado (retorna AsyncTaskiqDecoratedTask
+# sem preservar a assinatura); em strict isso reprovaria a task. Relaxa só aqui.
 module = ["app.worker"]
 disallow_untyped_decorators = false
 
