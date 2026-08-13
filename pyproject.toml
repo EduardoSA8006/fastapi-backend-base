@@ -5,37 +5,26 @@ description = "Backend da aplicação MyApp em FastAPI"
 authors = [
     {name = "Eduardo8006",email = "eduardoalves8006@gmail.com"}
 ]
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.14,<3.15"
 dependencies = [
-    "fastapi (>=0.136.3,<0.137.0)",
-    "uvicorn[standard] (>=0.48.0,<0.49.0)",
-    "sqlalchemy (>=2.0.50,<3.0.0)",
-    "alembic (>=1.18.4,<2.0.0)",
-    "pydantic-settings (>=2.14.1,<3.0.0)",
-    "psycopg[binary] (>=3.3.4,<4.0.0)",
-    "slowapi (>=0.1.9,<0.2.0)",
+    "fastapi>=0.136.3,<0.137.0",
+    "uvicorn[standard]>=0.48.0,<0.49.0",
+    "sqlalchemy>=2.0.50,<3.0.0",
+    "alembic>=1.18.4,<2.0.0",
+    "pydantic-settings>=2.14.1,<3.0.0",
+    "psycopg[binary]>=3.3.4,<4.0.0",
+    "slowapi>=0.1.9,<0.2.0",
     # >=6.4 (não >=8): o kombu (transporte do Celery) ainda capa redis-py em
     # <6.5; a interseção resolve para 6.4.x — a faixa testada pelo broker.
-    # Quando o kombu liberar 8.x, `poetry update redis` sobe sem editar isto.
-    "redis (>=6.4.0,<9.0.0)",
-    "celery[redis] (>=5.6,<6.0)",
-    "minio (>=7.2.20,<8.0.0)"
+    # Quando o kombu liberar 8.x, `uv lock --upgrade-package redis` sobe sem editar isto.
+    "redis>=6.4.0,<9.0.0",
+    "celery[redis]>=5.6,<6.0",
+    "minio>=7.2.20,<8.0.0",
 ]
-
-
-[tool.poetry]
-# A app roda via uvicorn (app/), não é um pacote distribuível. Sem isto, o
-# Poetry 2.x tenta instalar o pacote-raiz "myapp-backend" (inexistente) e o
-# `poetry install` falha — desnecessário usar --no-root em todo lugar.
-package-mode = false
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
@@ -74,7 +63,7 @@ extend-immutable-calls = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 strict = true
 files = ["app", "tests"]
 # mutants/ é a árvore de trabalho do mutmut (gitignored) — duplicaria "app".
@@ -102,8 +91,8 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 # Default = suíte unitária rápida (gate de cobertura). Integração/e2e exigem
 # Docker e rodam sob demanda:
-#   poetry run pytest -m integration --no-cov
-#   poetry run pytest -m e2e --no-cov
+#   uv run pytest -m integration --no-cov
+#   uv run pytest -m e2e --no-cov
 addopts = '--cov=app --cov-report=term-missing --cov-fail-under=90 -m "not integration and not e2e"'
 markers = [
     "integration: exige Docker — infra real efêmera via testcontainers",
@@ -112,22 +101,22 @@ markers = [
 
 [dependency-groups]
 dev = [
-    "pytest (>=9.0.3,<10.0.0)",
-    "pytest-asyncio (>=1.4.0,<2.0.0)",
-    "httpx (>=0.28.1,<0.29.0)",
-    "ruff (>=0.15.15,<0.16.0)",
-    "pip-audit (>=2.10.0,<3.0.0)",
-    "mypy (>=2.1.0,<3.0.0)",
-    "pytest-cov (>=7.1.0,<8.0.0)",
-    "testcontainers (>=4.14.2,<5.0.0)",
-    "hypothesis (>=6.155.2,<7.0.0)",
-    "mutmut (>=3.5.0,<4.0.0)"
+    "pytest>=9.0.3,<10.0.0",
+    "pytest-asyncio>=1.4.0,<2.0.0",
+    "httpx>=0.28.1,<0.29.0",
+    "ruff>=0.15.15,<0.16.0",
+    "pip-audit>=2.10.0,<3.0.0",
+    "mypy>=2.1.0,<3.0.0",
+    "pytest-cov>=7.1.0,<8.0.0",
+    "testcontainers>=4.14.2,<5.0.0",
+    "hypothesis>=6.155.2,<7.0.0",
+    "mutmut>=3.5.0,<4.0.0",
 ]
 
 [tool.mutmut]
 # Mutation testing — métrica LOCAL (não é gate de CI; ver README).
 # Mata-se mutantes com a suíte unitária (rápida); rodar:
-#   poetry run mutmut run && poetry run mutmut results
+#   uv run mutmut run && uv run mutmut results
 paths_to_mutate = [ "app/" ]
 tests_dir = [ "tests/" ]
 # Funções com assinatura INTROSPECTADA pelo FastAPI (rotas e dependências):

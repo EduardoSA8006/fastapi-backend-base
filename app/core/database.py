@@ -34,7 +34,7 @@ def build_session_factory(engine: Engine) -> sessionmaker[Session]:
 # build_engine(Settings()).
 
 
-def get_db(request: Request) -> Generator[Session, None, None]:
+def get_db(request: Request) -> Generator[Session]:
     """Dependência do FastAPI: uma sessão POR REQUISIÇÃO, com transação.
 
     Padrão de transação da casa (definido antes do primeiro repository):
