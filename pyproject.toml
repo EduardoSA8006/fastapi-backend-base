@@ -24,6 +24,12 @@ dependencies = [
 [tool.ruff]
 line-length = 88
 target-version = "py314"
+# ruff 0.16 passou a incluir *.md por padrão e formata blocos ```python``` em
+# Markdown. docs/ guarda planos/specs com excertos ilustrativos (indentação
+# de contexto parcial, não módulos completos) — formatá-los via ruff chega a
+# produzir sintaxe inválida (remove parênteses de except-tuple). Excluído do
+# escopo de lint/format; não é código de aplicação.
+extend-exclude = ["docs/"]
 
 [tool.ruff.lint]
 select = [
@@ -100,16 +106,16 @@ markers = [
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3,<10.0.0",
+    "pytest>=9.1.1,<10.0.0",
     "pytest-asyncio>=1.4.0,<2.0.0",
     "httpx>=0.28.1,<0.29.0",
-    "ruff>=0.15.15,<0.16.0",
-    "pip-audit>=2.10.0,<3.0.0",
-    "mypy>=2.1.0,<3.0.0",
+    "ruff>=0.16.2,<0.17.0",
+    "pip-audit>=2.10.1,<3.0.0",
+    "mypy>=2.3.0,<3.0.0",
     "pytest-cov>=7.1.0,<8.0.0",
-    "testcontainers>=4.14.2,<5.0.0",
-    "hypothesis>=6.155.2,<7.0.0",
-    "mutmut>=3.5.0,<4.0.0",
+    "testcontainers>=4.15.0,<5.0.0",
+    "hypothesis>=6.165.0,<7.0.0",
+    "mutmut>=3.7.0,<4.0.0",
 ]
 
 [tool.mutmut]
