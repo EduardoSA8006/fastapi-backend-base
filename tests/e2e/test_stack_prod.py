@@ -3,7 +3,7 @@
 O stack sobe com ENVIRONMENT=production e credenciais fortes geradas por
 execução — o simples fato de a api ficar healthy já prova que uma config de
 produção válida passa por TODOS os guards de boot (senhas, hosts, store do
-rate-limit, Celery, MinIO). Os testes validam o comportamento exclusivo de
+rate-limit, TaskIQ, MinIO). Os testes validam o comportamento exclusivo de
 produção pela rede real.
 """
 

@@ -109,9 +109,9 @@ def _stack_lifecycle(project: str, env: dict[str, str]) -> Iterator[str]:
     try:
         # Build + up: primeiro build é demorado (imagem + poetry install).
         _run([*_compose(project), "up", "-d", "--build"], env=env, timeout=900)
-        # api healthy implica db/redis/redis-celery/minio healthy (depends_on).
+        # api healthy implica db/redis/redis-taskiq/minio healthy (depends_on).
         _wait_healthy("myapp-api", timeout_s=300)
-        # worker: healthcheck = celery inspect ping real pelo broker.
+        # worker: healthcheck = round-trip real do TaskIQ pelo broker.
         _wait_healthy("myapp-worker", timeout_s=180)
         yield f"http://127.0.0.1:{env['API_PORT']}"
     finally:
@@ -136,7 +136,7 @@ def _prod_env() -> dict[str, str]:
         "ENVIRONMENT": "production",
         "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
         "REDIS_PASSWORD": secrets.token_urlsafe(24),
-        "CELERY_REDIS_PASSWORD": secrets.token_urlsafe(24),
+        "TASKIQ_REDIS_PASSWORD": secrets.token_urlsafe(24),
         "MINIO_ROOT_USER": "myapp-svc-e2e",
         "MINIO_ROOT_PASSWORD": secrets.token_urlsafe(24),
         "TRUSTED_HOSTS": f'["{PROD_HOST}"]',
