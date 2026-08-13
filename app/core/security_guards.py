@@ -3,7 +3,7 @@
 TODOS os guards de boot vivem aqui (não em main.py): o composition root só
 compõe; a política de segurança é deste módulo — testável isoladamente e
 invocável pelos DOIS processos que não podem se importar mutuamente: a API
-(app.main.create_app) e o worker do Celery (app.worker).
+(app.main.create_app) e o worker/scheduler do TaskIQ (app.worker).
 """
 
 import logging
@@ -34,10 +34,10 @@ WEAK_PASSWORDS = {
 # isolamento de rede.
 WEAK_MINIO_USERS = {"myapp", "minio", "admin", "root", "minioadmin", ""}
 
-# Schemes aceitos para broker/result-backend do Celery. A arquitetura usa um
-# Redis dedicado (redis-celery); rediss:// (TLS) fica aceito desde já para o
+# Schemes aceitos para broker/result-backend do TaskIQ. A arquitetura usa um
+# Redis dedicado (redis-taskiq); rediss:// (TLS) fica aceito desde já para o
 # caso de o broker um dia cruzar a fronteira de host.
-_CELERY_ALLOWED_SCHEMES = {"redis", "rediss"}
+_TASKIQ_ALLOWED_SCHEMES = {"redis", "rediss"}
 
 
 # Porta default do Redis — normaliza URLs sem porta explícita para que
@@ -50,34 +50,34 @@ def _host_port(url: str) -> tuple[str | None, int]:
     return parsed.hostname, parsed.port or _REDIS_DEFAULT_PORT
 
 
-def validate_celery_security(settings: Settings) -> None:
-    """Guards fail-closed do Celery — só têm efeito em produção.
+def validate_taskiq_security(settings: Settings) -> None:
+    """Guards fail-closed do TaskIQ — só têm efeito em produção.
 
-    Chamado tanto pelo create_app (API) quanto no import de app.worker
-    (worker/beat): qualquer processo que toque o broker valida a config
-    antes de subir. Fora de produção não levanta (dev usa defaults fracos).
+    Chamado pelo create_app (API) e no import de app.worker (worker/scheduler):
+    qualquer processo que toque o broker valida a config antes de subir. Fora
+    de produção não levanta (dev usa defaults fracos).
     """
     if not settings.is_production:
         return
 
     for label, url in (
-        ("broker (CELERY_BROKER_URL)", settings.celery_broker_url),
-        ("result backend (CELERY_RESULT_BACKEND)", settings.celery_result_backend),
+        ("broker (TASKIQ_BROKER_URL)", settings.taskiq_broker_url),
+        ("result backend (TASKIQ_RESULT_BACKEND)", settings.taskiq_result_backend),
     ):
         parsed = urlparse(url)
         # Só o transporte Redis da arquitetura — recusa memory:// (perde
         # mensagens), amqp:// etc., que não passariam pelos guards abaixo.
-        if parsed.scheme not in _CELERY_ALLOWED_SCHEMES:
+        if parsed.scheme not in _TASKIQ_ALLOWED_SCHEMES:
             raise ValueError(
-                f"Celery em produção exige redis:// ou rediss:// no {label}; "
+                f"TaskIQ em produção exige redis:// ou rediss:// no {label}; "
                 f"recebido scheme {parsed.scheme!r}."
             )
         # Mesma régua de senha do banco/Redis/MinIO; ausente vira "" (fraca).
         if (parsed.password or "") in WEAK_PASSWORDS:
             raise ValueError(
-                f"Senha do Celery default/fraca (ou ausente) no {label} não é "
+                f"Senha do TaskIQ default/fraca (ou ausente) no {label} não é "
                 "permitida em produção. Use uma senha forte "
-                "(redis://:SENHA@redis-celery:6379/N)."
+                "(redis://:SENHA@redis-taskiq:6379/N)."
             )
 
     # Invariante arquitetural: broker/backend NÃO podem ser a mesma instância
@@ -89,14 +89,14 @@ def validate_celery_security(settings: Settings) -> None:
     ):
         rl_instance = _host_port(settings.rate_limit_storage_uri)
         for label, url in (
-            ("broker", settings.celery_broker_url),
-            ("result backend", settings.celery_result_backend),
+            ("broker", settings.taskiq_broker_url),
+            ("result backend", settings.taskiq_result_backend),
         ):
             if _host_port(url) == rl_instance:
                 raise ValueError(
-                    f"O {label} do Celery aponta para a mesma instância Redis "
+                    f"O {label} do TaskIQ aponta para a mesma instância Redis "
                     "do rate-limit (host:porta iguais). Em produção use uma "
-                    "instância dedicada (ex.: redis-celery) — a separação "
+                    "instância dedicada (ex.: redis-taskiq) — a separação "
                     "contém o raio de explosão de um task comprometido."
                 )
 
@@ -115,8 +115,8 @@ def validate_universal(settings: Settings) -> None:
 def validate_production(settings: Settings) -> None:
     """Guards fail-closed de produção. No-op fora de ENVIRONMENT=production.
 
-    Chamado pelo create_app; o subconjunto do Celery também roda no worker
-    (via validate_celery_security no import de app.worker).
+    Chamado pelo create_app; o subconjunto do TaskIQ também roda no worker
+    (via validate_taskiq_security no import de app.worker).
     """
     if not settings.is_production:
         return
@@ -168,8 +168,8 @@ def validate_production(settings: Settings) -> None:
                 "Senha de banco default/fraca não é permitida em produção. "
                 "Use uma senha forte na DATABASE_URL."
             )
-    # Broker/result backend do Celery (compartilhado com o worker).
-    validate_celery_security(settings)
+    # Broker/result backend do TaskIQ (compartilhado com o worker).
+    validate_taskiq_security(settings)
     # Avisos de topologia de proxy — a app não detecta a topologia com
     # segurança, então não falha o boot; exige confirmação do operador.
     if settings.rate_limit_enabled and not settings.trust_proxy:
