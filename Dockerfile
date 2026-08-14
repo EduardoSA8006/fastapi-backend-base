@@ -32,6 +32,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Aplica patches de segurança de OS da base: a imagem base costuma ficar atrás
+# das últimas correções do Debian, e o trivy reprova CVEs de OS com correção
+# publicada ("fixed"). Rodar o upgrade torna o gate determinístico,
+# independente do digest exato da base (ex.: openssl CVE-2026-45447, libcap2
+# CVE-2026-4878). `--no-install-recommends` e limpeza do apt mantêm a imagem enxuta.
+RUN apt-get update \
+    && apt-get -y --no-install-recommends upgrade \
+    && rm -rf /var/lib/apt/lists/*
+
 # Usuário sem privilégios: limita o impacto de uma eventual RCE na aplicação.
 RUN groupadd -r app && useradd -r -g app -d /app app
 
@@ -40,6 +49,20 @@ COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app . .
 
 RUN chmod +x /app/docker/entrypoint.sh
+
+# Remove pip/setuptools/wheel que a imagem base traz embutidos em /usr/local.
+# O app roda EXCLUSIVAMENTE de /app/.venv (que não os contém, pois `uv sync
+# --no-dev` não instala ferramentas de build) — pip/setuptools no runtime são
+# superfície morta. Removê-los elimina CVEs de ferramentas de build que não têm
+# o que fazer numa imagem de produção (ex.: setuptools CVE-2025-47273; msgpack
+# vendorizado dentro do pip) e enxuga a imagem, de forma determinística
+# (independe de qual digest da base o build pegou).
+RUN set -eux; \
+    for d in /usr/local/lib/python3.*/site-packages; do \
+      rm -rf "$d"/pip "$d"/pip-* "$d"/setuptools "$d"/setuptools-* \
+             "$d"/pkg_resources "$d"/wheel "$d"/wheel-*; \
+    done; \
+    rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
 
 USER app
 
