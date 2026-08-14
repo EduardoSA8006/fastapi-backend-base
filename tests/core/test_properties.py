@@ -155,10 +155,10 @@ def test_json_formatter_sempre_uma_linha_json_valida(payload: str) -> None:
 # --- Body-size: fronteira exata sob corpo chunked (fuzz) ---
 
 _LIMIT = 64
-_bs_client: "TestClient | None" = None
+_bs_client: TestClient | None = None
 
 
-def _body_size_client() -> "TestClient":
+def _body_size_client() -> TestClient:
     # Um único app/cliente para todos os exemplos (stateless entre requests).
     global _bs_client
     if _bs_client is None:

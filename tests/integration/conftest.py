@@ -14,9 +14,9 @@ from testcontainers.core.waiting_utils import wait_for_logs
 
 @contextmanager
 def redis_container(password: str) -> Iterator[str]:
-    """Redis 7 efêmero com --requirepass; produz a URL base (sem /db)."""
+    """Redis 8 efêmero com --requirepass; produz a URL base (sem /db)."""
     container = (
-        DockerContainer("redis:7-alpine")
+        DockerContainer("redis:8-alpine")
         .with_command(f"redis-server --requirepass {password}")
         .with_exposed_ports(6379)
     )

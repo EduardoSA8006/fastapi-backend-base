@@ -81,8 +81,8 @@ _TCP_CHECK = (
 
 
 def test_worker_nao_alcanca_redis_do_rate_limit(stack: str) -> None:
-    # O invariante que até aqui só existia em config: worker/beat ficam em
-    # data_net + celery_net, SEM rota até o `redis` (ratelimit_net). Um task
+    # O invariante que até aqui só existia em config: worker/scheduler ficam
+    # em data_net + taskiq_net, SEM rota até o `redis` (ratelimit_net). Um task
     # comprometido não pode ler/flushar as chaves do rate-limit.
     code, output = compose_exec(
         "worker", "python", "-c", _TCP_CHECK, "redis", timeout=30
@@ -92,9 +92,9 @@ def test_worker_nao_alcanca_redis_do_rate_limit(stack: str) -> None:
 
 def test_worker_alcanca_o_broker_dedicado(stack: str) -> None:
     # Contraprova: a falha acima não é um worker sem rede — o broker dele
-    # (redis-celery, em celery_net) é alcançável normalmente.
+    # (redis-taskiq, em taskiq_net) é alcançável normalmente.
     code, output = compose_exec(
-        "worker", "python", "-c", _TCP_CHECK, "redis-celery", timeout=30
+        "worker", "python", "-c", _TCP_CHECK, "redis-taskiq", timeout=30
     )
     assert code == 0, f"worker não alcançou o próprio broker: {output}"
 
@@ -102,17 +102,17 @@ def test_worker_alcanca_o_broker_dedicado(stack: str) -> None:
 # --- Saúde real dos serviços ---
 
 
-def test_worker_e_minio_healthy_beat_rodando(stack: str) -> None:
-    # worker healthy = `celery inspect ping` real respondeu pelo broker.
-    # minio healthy = `mc ready local` OK. beat: running (o healthy dele exige
-    # start_period de 210s — fora do orçamento do e2e; o pipeline broker→worker
-    # é coberto na integração).
+def test_worker_e_minio_healthy_scheduler_rodando(stack: str) -> None:
+    # worker healthy = round-trip real do TaskIQ respondeu pelo broker.
+    # minio healthy = `mc ready local` OK. scheduler: running (o healthy dele
+    # depende do marcador fresco = scheduler_start + cadência — fora do
+    # orçamento do e2e; o pipeline é coberto pelo teste de heartbeat abaixo).
     worker = container_state("myapp-worker")
     minio = container_state("myapp-minio")
-    beat = container_state("myapp-beat")
+    scheduler = container_state("myapp-scheduler")
     assert worker.get("Health", {}).get("Status") == "healthy"
     assert minio.get("Health", {}).get("Status") == "healthy"
-    assert beat.get("Status") == "running"
+    assert scheduler.get("Status") == "running"
 
 
 # --- Storage MinIO pela rede interna real ---
@@ -163,40 +163,39 @@ def test_burst_de_50_requisicoes_concorrentes(stack: str) -> None:
 
 # --- Cenários de falha/tempo real ---
 
-# SCAN (scan_iter), NÃO keys(): o redis-celery do stack tem o comando KEYS
-# desabilitado (rename-command — nosso próprio hardening); keys() falharia
-# aqui mesmo com o heartbeat funcionando. SCAN não é renomeado.
+# O scheduler grava o marcador `myapp:taskiq:heartbeat` (valor b"pong", TTL
+# 3x a cadência) no broker (DB 0, TASKIQ_BROKER_URL) toda vez que a task
+# agendada `ping` executa. Um único GET do marcador prova o pipeline inteiro
+# scheduler→broker→worker — sem varrer chaves (o redis-taskiq tem KEYS
+# desabilitado por hardening, mas aqui nem precisamos de SCAN).
 _HEARTBEAT_CHECK = (
     "import os, time, sys\n"
     "import redis\n"
-    "backend = redis.from_url(os.environ['CELERY_RESULT_BACKEND'],"
-    " socket_timeout=5)\n"
+    "c = redis.from_url(os.environ['TASKIQ_BROKER_URL'], socket_timeout=5)\n"
     "deadline = time.monotonic() + 120\n"
     "while time.monotonic() < deadline:\n"
-    "    for key in backend.scan_iter('celery-task-meta-*'):\n"
-    "        value = backend.get(key)\n"
-    "        if value is not None and b'\"pong\"' in value:\n"
-    "            print('HEARTBEAT-OK'); sys.exit(0)\n"
+    "    if c.get('myapp:taskiq:heartbeat'):\n"
+    "        print('HEARTBEAT-OK'); sys.exit(0)\n"
     "    time.sleep(3)\n"
     "print('SEM-HEARTBEAT'); sys.exit(1)\n"
 )
 
 
-def test_beat_heartbeat_real_no_stack(stack: str) -> None:
-    # O pipeline COMPLETO no stack deployado: o beat (container) publica o
-    # core.ping a cada 60s, o worker executa e o resultado aparece no result
-    # backend. Espera até 120s (1º disparo = beat_start + 60s) — o trecho
-    # que a integração cobre com heartbeat de 1s, aqui na cadência real.
-    # Verificado de DENTRO do worker (o redis-celery não é alcançável do
-    # host, por design).
+def test_scheduler_heartbeat_real_no_stack(stack: str) -> None:
+    # O pipeline COMPLETO no stack deployado: o scheduler (container) publica a
+    # task `ping` a cada 60s, o worker a executa e grava o marcador
+    # `myapp:taskiq:heartbeat` no broker. Espera até 120s (1º disparo =
+    # scheduler_start + 60s) — o trecho que a integração cobre com cadência
+    # curta, aqui na cadência real. Verificado de DENTRO do worker (o
+    # redis-taskiq não é alcançável do host, por design).
     code, output = compose_exec("worker", "python", "-c", _HEARTBEAT_CHECK, timeout=140)
-    assert code == 0, f"heartbeat do beat não chegou ao backend: {output}"
+    assert code == 0, f"heartbeat do scheduler não chegou ao broker: {output}"
     assert "HEARTBEAT-OK" in output
 
 
 def test_worker_se_recupera_de_restart(stack: str) -> None:
     # Resiliência: worker reiniciado (deploy/OOM/evict) volta a healthy —
-    # reconecta ao broker e responde ao inspect ping sem intervenção.
+    # reconecta ao broker e passa no round-trip do TaskIQ sem intervenção.
     import subprocess
     import time
 

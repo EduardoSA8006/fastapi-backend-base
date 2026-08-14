@@ -1,38 +1,45 @@
-# --- Estágio de build: instala dependências num venv isolado ---
+# --- Estágio de build: resolve dependências num venv isolado via uv ---
 # H2: fixe a base por DIGEST em produção (uma re-publicação da tag muda o
-# conteúdo). Obtenha com `docker buildx imagetools inspect python:3.13-slim` ou
-# `docker inspect --format='{{index .RepoDigests 0}}' python:3.13-slim` e use:
-#   FROM python:3.13-slim@sha256:<digest> AS builder
-# Mantenha atualizado via Renovate/Dependabot (updates de digest do Docker).
-FROM python:3.13-slim AS builder
+# conteúdo). Obtenha com `docker buildx imagetools inspect python:3.14-slim`.
+FROM python:3.14-slim AS builder
+
+# Copia o binário do uv de uma imagem oficial fixada (pin por tag; em produção
+# prefira pin por digest, mantido via Renovate/Dependabot).
+COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    POETRY_VERSION=2.4.1 \
-    PIP_NO_CACHE_DIR=1 \
-    # venv no projeto, copiado para o estágio final (Poetry/pip NÃO vão p/ runtime).
-    POETRY_VIRTUALENVS_CREATE=true \
-    POETRY_VIRTUALENVS_IN_PROJECT=true
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
 WORKDIR /app
 
-RUN pip install "poetry==${POETRY_VERSION}"
+# Instala só as dependências primeiro (aproveita o cache de camadas): sem o
+# código, --no-install-project evita reinstalar a cada mudança de fonte.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-# Instala só as dependências primeiro (aproveita o cache de camadas).
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-root --only main
 
-
-# --- Estágio de runtime: slim, sem Poetry/pip/ferramentas de build ---
+# --- Estágio de runtime: slim, sem uv/pip/ferramentas de build ---
 # H2: fixe também esta base por digest (mesmo digest do builder).
-FROM python:3.13-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    # O venv copiado do builder entra no PATH; nada de Poetry no runtime.
+    # O venv copiado do builder entra no PATH; nada de uv/pip no runtime.
     PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
+
+# Aplica patches de segurança de OS da base: a imagem base costuma ficar atrás
+# das últimas correções do Debian, e o trivy reprova CVEs de OS com correção
+# publicada ("fixed"). Rodar o upgrade torna o gate determinístico,
+# independente do digest exato da base (ex.: openssl CVE-2026-45447, libcap2
+# CVE-2026-4878). `--no-install-recommends` e limpeza do apt mantêm a imagem enxuta.
+RUN apt-get update \
+    && apt-get -y --no-install-recommends upgrade \
+    && rm -rf /var/lib/apt/lists/*
 
 # Usuário sem privilégios: limita o impacto de uma eventual RCE na aplicação.
 RUN groupadd -r app && useradd -r -g app -d /app app
@@ -42,6 +49,20 @@ COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app . .
 
 RUN chmod +x /app/docker/entrypoint.sh
+
+# Remove pip/setuptools/wheel que a imagem base traz embutidos em /usr/local.
+# O app roda EXCLUSIVAMENTE de /app/.venv (que não os contém, pois `uv sync
+# --no-dev` não instala ferramentas de build) — pip/setuptools no runtime são
+# superfície morta. Removê-los elimina CVEs de ferramentas de build que não têm
+# o que fazer numa imagem de produção (ex.: setuptools CVE-2025-47273; msgpack
+# vendorizado dentro do pip) e enxuga a imagem, de forma determinística
+# (independe de qual digest da base o build pegou).
+RUN set -eux; \
+    for d in /usr/local/lib/python3.*/site-packages; do \
+      rm -rf "$d"/pip "$d"/pip-* "$d"/setuptools "$d"/setuptools-* \
+             "$d"/pkg_resources "$d"/wheel "$d"/wheel-*; \
+    done; \
+    rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
 
 USER app
 

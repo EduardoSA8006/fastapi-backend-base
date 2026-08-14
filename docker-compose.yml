@@ -1,13 +1,13 @@
 # Segmentação de rede (least-privilege entre containers):
-#   data_net      — api, worker, beat, db, minio (tasks legítimos usam banco/storage)
-#   ratelimit_net — api e redis SOMENTE: worker/beat NÃO têm rota até o Redis
-#                   do rate-limit — um task comprometido não alcança/flusha
-#                   essas chaves.
-#   celery_net    — api, worker, beat e redis-celery (broker/result backend
-#                   dedicados); a api entra só para despachar .delay().
+#   data_net      — api, worker, scheduler, db, minio (tasks legítimos usam banco/storage)
+#   ratelimit_net — api e redis SOMENTE: worker/scheduler NÃO têm rota até o
+#                   Redis do rate-limit — um task comprometido não
+#                   alcança/flusha essas chaves.
+#   taskiq_net    — api, worker, scheduler e redis-taskiq (broker/result
+#                   backend dedicados); a api entra só para despachar .kiq().
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: myapp-db
     restart: unless-stopped
     networks:
@@ -16,6 +16,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-myapp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myapp}
       POSTGRES_DB: ${POSTGRES_DB:-myapp}
+      # PG18 mudou o PGDATA default (inclui a major). Fixa no caminho do mount
+      # para preservar o volume postgres_data:/var/lib/postgresql/data.
+      PGDATA: /var/lib/postgresql/data
     # Sem `ports:` — o Postgres NÃO é exposto ao host. Acessível apenas pela
     # rede interna do Docker (pelo serviço `api`), via o hostname `db`.
     expose:
@@ -29,7 +32,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: myapp-redis
     restart: unless-stopped
     # Exige senha mesmo na rede interna (um container comprometido não conecta
@@ -47,11 +50,11 @@ services:
     networks:
       - ratelimit_net
 
-  redis-celery:
-    image: redis:7-alpine
-    container_name: myapp-redis-celery
+  redis-taskiq:
+    image: redis:8-alpine
+    container_name: myapp-redis-taskiq
     restart: unless-stopped
-    # Broker + result backend DEDICADOS do Celery — instância separada do
+    # Broker + result backend DEDICADOS do TaskIQ — instância separada do
     # Redis do rate-limit (o guard de produção recusa apontá-los para a mesma
     # instância). `sh -c` para a senha vir do environment (expandida pelo
     # shell do container, não fica no argv visível do compose):
@@ -66,7 +69,7 @@ services:
       - -c
       - >
         exec redis-server
-        --requirepass "$$CELERY_REDIS_PASSWORD"
+        --requirepass "$$TASKIQ_REDIS_PASSWORD"
         --rename-command FLUSHALL ""
         --rename-command FLUSHDB ""
         --rename-command KEYS ""
@@ -76,8 +79,8 @@ services:
         --maxmemory-policy noeviction
         --appendonly no
     environment:
-      CELERY_REDIS_PASSWORD: ${CELERY_REDIS_PASSWORD:-myapp}
-    # Sem `ports:` — não é exposto ao host; alcançável só em celery_net.
+      TASKIQ_REDIS_PASSWORD: ${TASKIQ_REDIS_PASSWORD:-myapp}
+    # Sem `ports:` — não é exposto ao host; alcançável só em taskiq_net.
     expose:
       - "6379"
     healthcheck:
@@ -86,7 +89,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          'REDISCLI_AUTH="$$CELERY_REDIS_PASSWORD" redis-cli ping | grep -q PONG',
+          'REDISCLI_AUTH="$$TASKIQ_REDIS_PASSWORD" redis-cli ping | grep -q PONG',
         ]
       interval: 5s
       timeout: 3s
@@ -98,10 +101,10 @@ services:
     cpus: 0.5
     mem_limit: 192m
     networks:
-      - celery_net
+      - taskiq_net
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772
     container_name: myapp-minio
     restart: unless-stopped
     # `server /data` sobe o object store. `--console-address :9001` prende o
@@ -149,7 +152,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      redis-celery:
+      redis-taskiq:
         condition: service_healthy
       minio:
         condition: service_healthy
@@ -201,10 +204,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-myapp}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-myapp-minio-dev}
       MINIO_BUCKET: ${MINIO_BUCKET:-myapp-files}
-      # Celery: a api só DESPACHA tasks (.delay()) — broker/result backend na
-      # instância dedicada (redis-celery), separada do Redis do rate-limit.
-      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/0
-      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/1
+      TASKIQ_BROKER_URL: redis://:${TASKIQ_REDIS_PASSWORD:-myapp}@redis-taskiq:6379/0
+      TASKIQ_RESULT_BACKEND: redis://:${TASKIQ_REDIS_PASSWORD:-myapp}@redis-taskiq:6379/1
       # Host enviado pelo healthcheck. Em produção (TRUSTED_HOSTS restrito),
       # defina com um host permitido, ex.: HEALTHCHECK_HOST=api.myapp.com.
       HEALTHCHECK_HOST: ${HEALTHCHECK_HOST:-127.0.0.1}
@@ -231,29 +232,20 @@ services:
     networks:
       - data_net
       - ratelimit_net
-      - celery_net
+      - taskiq_net
 
   worker:
     build: .
     container_name: myapp-worker
     restart: unless-stopped
-    # Mesma imagem da api; o entrypoint espera o banco mas NÃO migra
-    # (RUN_MIGRATIONS_ON_START=false) — migração é responsabilidade da
-    # api/etapa de deploy, evitando corrida entre containers.
-    # Flags: --without-gossip/--mingle/--heartbeat desligam o chatter
-    # peer-a-peer (um único worker não precisa; menos tráfego de controle no
-    # broker = superfície menor). O control mailbox continua ativo — o
-    # healthcheck `inspect ping` depende dele.
     command:
-      [
-        "celery", "-A", "app.worker", "worker",
-        "--loglevel=info", "--concurrency=2",
-        "--without-gossip", "--without-mingle", "--without-heartbeat",
-      ]
+      ["taskiq", "worker", "app.worker:broker",
+       "--ack-type", "when_executed", "--workers", "1", "--max-async-tasks", "2",
+       "--log-level", "INFO"]
     depends_on:
       db:
         condition: service_healthy
-      redis-celery:
+      redis-taskiq:
         condition: service_healthy
     environment:
       ENVIRONMENT: ${ENVIRONMENT:?defina ENVIRONMENT (development/staging/production) — sem default por segurança}
@@ -261,64 +253,39 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-myapp}:${POSTGRES_PASSWORD:-myapp}@db:5432/${POSTGRES_DB:-myapp}
-      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/0
-      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/1
-      # Tasks futuros alcançam o storage (data_net) com a MESMA credencial da
-      # api — não há credencial separada porque o MinIO não tem contas com
-      # escopo neste design (ver spec do MinIO).
+      TASKIQ_BROKER_URL: redis://:${TASKIQ_REDIS_PASSWORD:-myapp}@redis-taskiq:6379/0
+      TASKIQ_RESULT_BACKEND: redis://:${TASKIQ_REDIS_PASSWORD:-myapp}@redis-taskiq:6379/1
       MINIO_ENDPOINT: minio:9000
       MINIO_USE_SSL: "false"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-myapp}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-myapp-minio-dev}
       MINIO_BUCKET: ${MINIO_BUCKET:-myapp-files}
     healthcheck:
-      # Processo vivo ≠ worker funcional: `inspect ping` faz round-trip real
-      # pelo broker e só responde se o loop de consumo está saudável.
-      test:
-        [
-          "CMD-SHELL",
-          "celery -A app.worker inspect ping -d celery@$$HOSTNAME -t 5 | grep -q pong",
-        ]
+      # Round-trip real pelo broker (processo vivo != worker funcional).
+      test: ["CMD-SHELL", "python -m app.worker_healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    # Mesmo endurecimento da api:
     read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
     pids_limit: 256
     cpus: 1.0
     mem_limit: 512m
-    # data_net (banco/storage p/ tasks) + celery_net (broker). NUNCA
-    # ratelimit_net: um task comprometido não tem rota até o Redis do
-    # rate-limit.
-    networks:
-      - data_net
-      - celery_net
+    networks: [data_net, taskiq_net]
 
-  beat:
+  scheduler:
     build: .
-    container_name: myapp-beat
+    container_name: myapp-scheduler
     restart: unless-stopped
-    # EXATAMENTE 1 réplica: dois beats = todo schedule disparado em dobro.
-    # Se a topologia um dia escalar, migre para celery-redbeat (scheduler
-    # Redis com lock distribuído). O arquivo de schedule fica em /tmp
-    # (tmpfs, efêmero de propósito — o beat o reconstrói do beat_schedule
-    # no boot; nada nele é fonte de verdade).
-    command:
-      [
-        "celery", "-A", "app.worker", "beat",
-        "--loglevel=info", "--schedule=/tmp/celerybeat-schedule",
-      ]
+    # EXATAMENTE 1 réplica: dois schedulers = disparo em dobro.
+    command: ["taskiq", "scheduler", "app.worker:scheduler", "--log-level", "INFO"]
     depends_on:
       db:
         condition: service_healthy
-      redis-celery:
+      redis-taskiq:
         condition: service_healthy
     environment:
       ENVIRONMENT: ${ENVIRONMENT:?defina ENVIRONMENT (development/staging/production) — sem default por segurança}
@@ -326,37 +293,27 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-myapp}:${POSTGRES_PASSWORD:-myapp}@db:5432/${POSTGRES_DB:-myapp}
-      CELERY_BROKER_URL: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/0
-      CELERY_RESULT_BACKEND: redis://:${CELERY_REDIS_PASSWORD:-myapp}@redis-celery:6379/1
+      TASKIQ_BROKER_URL: redis://:${TASKIQ_REDIS_PASSWORD:-myapp}@redis-taskiq:6379/0
+      TASKIQ_RESULT_BACKEND: redis://:${TASKIQ_REDIS_PASSWORD:-myapp}@redis-taskiq:6379/1
     healthcheck:
-      # Beat não executa tasks — só publica no broker. Sinal de vida: o
-      # arquivo de schedule é sincronizado periodicamente (PersistentScheduler
-      # sincroniza a cada ~3min; o heartbeat de 60s garante atividade).
-      # Janela de 10min = 3 chances de sync antes de acusar unhealthy.
+      # Sinal de vida do pipeline: a task agendada grava o marcador
+      # myapp:taskiq:heartbeat (TTL 3x a cadência). Fresco => scheduler
+      # publicou e o worker executou. TTL default = 180s.
       test:
-        [
-          "CMD-SHELL",
-          "python -c \"import glob,os,sys,time; fs=glob.glob('/tmp/celerybeat-schedule*'); sys.exit(0 if fs and time.time()-max(os.path.getmtime(f) for f in fs)<600 else 1)\"",
-        ]
+        ["CMD-SHELL",
+         "python -c \"import os,redis,sys; c=redis.from_url(os.environ['TASKIQ_BROKER_URL']); sys.exit(0 if c.get('myapp:taskiq:heartbeat') else 1)\""]
       interval: 60s
       timeout: 5s
       retries: 3
-      # Folga para o primeiro sync do scheduler (~180s) + boot lento: não
-      # acusa unhealthy antes de o arquivo ter chance real de existir.
       start_period: 210s
     read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
     pids_limit: 128
     cpus: 0.25
     mem_limit: 256m
-    networks:
-      - data_net
-      - celery_net
+    networks: [data_net, taskiq_net]
 
 volumes:
   postgres_data:
@@ -365,4 +322,4 @@ volumes:
 networks:
   data_net:
   ratelimit_net:
-  celery_net:
+  taskiq_net:

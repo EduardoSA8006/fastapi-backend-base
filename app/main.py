@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -15,6 +18,7 @@ from app.core.middleware.security_headers import SecurityHeadersMiddleware
 from app.core.security_guards import validate_production, validate_universal
 from app.features.health import router as health
 from app.shared.exceptions import register_exception_handlers
+from app.worker import broker as taskiq_broker
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -32,6 +36,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     validate_universal(settings)
     validate_production(settings)
 
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # A API só DESPACHA tasks (.kiq()); inicia o broker no processo web,
+        # nunca no worker (is_worker_process). InMemoryBroker no-op em testes.
+        if not taskiq_broker.is_worker_process:
+            await taskiq_broker.startup()
+        yield
+        if not taskiq_broker.is_worker_process:
+            await taskiq_broker.shutdown()
+
     # Documentação interativa só fora de produção (não expõe a superfície da API).
     docs_enabled = not settings.is_production
     app = FastAPI(
@@ -40,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
+        lifespan=lifespan,
     )
 
     # Settings deste app guardado no state, para que as rotas respeitem o

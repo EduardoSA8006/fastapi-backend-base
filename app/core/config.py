@@ -87,17 +87,17 @@ class Settings(BaseSettings):
     minio_root_password: str = "myapp-minio-dev"  # noqa: S105
     minio_bucket: str = "myapp-files"
 
-    # Celery — broker e result backend numa instância Redis DEDICADA
-    # (redis-celery), separada do Redis do rate-limit; em produção o guard
-    # recusa apontar os dois para a mesma instância. DB 0 = broker,
+    # TaskIQ — broker e result backend numa instância Redis DEDICADA
+    # (redis-taskiq), separada do Redis do rate-limit; em produção o guard
+    # recusa apontar os dois para a mesma instância. DB 0 = broker (stream),
     # DB 1 = resultados (keyspaces separados facilitam inspeção/limpeza).
-    celery_broker_url: str = "redis://:myapp@redis-celery:6379/0"
-    celery_result_backend: str = "redis://:myapp@redis-celery:6379/1"
-    # Execução síncrona in-process (sem broker) — só para testes.
-    celery_task_always_eager: bool = False
-    # Cadência do heartbeat do beat (core.ping). Retunável via env sem mudar
-    # código; a integração do pipeline beat→broker→worker usa 1s.
-    celery_heartbeat_seconds: float = 60.0
+    taskiq_broker_url: str = "redis://:myapp@redis-taskiq:6379/0"
+    taskiq_result_backend: str = "redis://:myapp@redis-taskiq:6379/1"
+    # Execução in-process (InMemoryBroker, sem broker real) — só para testes.
+    taskiq_in_memory: bool = False
+    # Cadência do heartbeat agendado (core.ping). Retunável via env sem mudar
+    # código; a integração do pipeline scheduler→broker→worker usa 1s.
+    taskiq_heartbeat_seconds: float = 60.0
 
     @field_validator("environment")
     @classmethod

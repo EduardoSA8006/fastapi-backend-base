@@ -16,35 +16,33 @@ jobs:
       # Actions fixadas por SHA (tags são mutáveis — cadeia de suprimentos).
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Instalar Poetry
-        run: pipx install poetry
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
-          python-version: "3.13"
-          cache: poetry
+          python-version: "3.14"
+          enable-cache: true
 
       - name: Instalar dependências
-        run: poetry install --no-interaction
+        run: uv sync --frozen
 
       - name: Lint (ruff)
-        run: poetry run ruff check .
+        run: uv run ruff check .
 
       - name: Formatação (ruff format)
-        run: poetry run ruff format --check .
+        run: uv run ruff format --check .
 
       - name: Checagem de tipos (mypy --strict)
-        run: poetry run mypy .
+        run: uv run mypy .
 
       - name: Testes + cobertura (pytest, gate 90%)
-        run: poetry run pytest
+        run: uv run pytest
 
       - name: Auditoria de dependências (pip-audit)
         # O upgrade do pip cobre CVEs do próprio pip do venv (ex.:
         # PYSEC-2026-196) — o pip-audit audita o ambiente inteiro, incluindo-o.
         run: |
-          poetry run python -m pip install --upgrade pip
-          poetry run pip-audit
+          uv run python -m pip install --upgrade pip
+          uv run pip-audit
 
   # Testes de integração: infra real efêmera (Postgres/Redis/MinIO via
   # testcontainers) — o runner ubuntu-latest traz Docker. Roda em paralelo ao
@@ -54,19 +52,17 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Instalar Poetry
-        run: pipx install poetry
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
-          python-version: "3.13"
-          cache: poetry
+          python-version: "3.14"
+          enable-cache: true
 
       - name: Instalar dependências
-        run: poetry install --no-interaction
+        run: uv sync --frozen
 
       - name: Testes de integração (testcontainers)
-        run: poetry run pytest -m integration --no-cov
+        run: uv run pytest -m integration --no-cov
 
   # E2E: sobe o stack compose completo (projetos isolados myapp-e2e*) e o
   # ataca de fora com httpx — inclui o invariante de isolamento de rede e o
@@ -76,19 +72,17 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Instalar Poetry
-        run: pipx install poetry
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
-          python-version: "3.13"
-          cache: poetry
+          python-version: "3.14"
+          enable-cache: true
 
       - name: Instalar dependências
-        run: poetry install --no-interaction
+        run: uv sync --frozen
 
       - name: Testes e2e (compose + httpx)
-        run: poetry run pytest -m e2e --no-cov
+        run: uv run pytest -m e2e --no-cov
 
   # SAST do código Python já é coberto pelas regras `S` (bandit) do ruff no job
   # acima; aqui ficam o secret scanning e o scan da imagem Docker.

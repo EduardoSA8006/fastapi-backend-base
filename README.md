@@ -1,7 +1,7 @@
 # FastAPI Backend Base
 
 [![CI](https://github.com/EduardoSA8006/fastapi-backend-base/actions/workflows/ci.yml/badge.svg)](https://github.com/EduardoSA8006/fastapi-backend-base/actions/workflows/ci.yml)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [🇺🇸 English version](README.en.md)
@@ -22,29 +22,32 @@ novos já com a fundação que normalmente leva semanas para endurecer.
   `core/security_guards.py`, testável isoladamente.
 - **Guards fail-closed de produção** — em `ENVIRONMENT=production` o boot é
   RECUSADO com: hosts curinga, rate-limit em memória, `DEBUG=true`, senha
-  fraca/default em banco/Redis/MinIO/Celery, usuário MinIO previsível ou
-  broker do Celery na mesma instância do Redis do rate-limit. `ENVIRONMENT`
+  fraca/default em banco/Redis/MinIO/TaskIQ, usuário MinIO previsível ou
+  broker do TaskIQ na mesma instância do Redis do rate-limit. `ENVIRONMENT`
   é obrigatório (sem default — typo no nome da variável não cai em modo dev).
 - **Camada de erros completa** — hierarquia `AppException` + handler global,
   `ErrorBoundary` ASGI (500 padronizado/blindado, nunca text/plain), access
   log JSON estruturado com `X-Request-ID` correlacionado até no crash.
 - **Infra Docker segura por padrão** — Postgres, Redis (rate-limit),
-  Redis dedicado do Celery (comandos destrutivos desativados), MinIO e
-  worker/beat Celery **sem nenhuma porta publicada**; 3 redes segmentadas
-  (worker não tem rota até o Redis do rate-limit); API só em loopback;
+  Redis dedicado do TaskIQ (comandos destrutivos desativados), MinIO e
+  worker/scheduler TaskIQ **sem nenhuma porta publicada**; 3 redes segmentadas
+  (worker/scheduler sem rota até o Redis do rate-limit); API só em loopback;
   containers endurecidos (read-only, cap_drop ALL, limites).
-- **Celery endurecido** — serialização json-only nas três superfícies,
-  `acks_late`, prefetch 1, time limits; task `core.ping` como heartbeat do
-  beat; storage MinIO com facade async (`shared/storage.py`), bucket lazy e
-  erros tipados.
+- **TaskIQ endurecido** — serialização ORJSON (json-only, sem pickle) no
+  broker e no result backend; ack `when_executed` (equivalente ao
+  `acks_late` + reject-on-worker-lost do Celery); task `core.ping` agendada
+  como heartbeat do scheduler; healthchecks reais (round-trip no worker,
+  frescor do marcador de heartbeat no scheduler); Redis dedicado com
+  comandos destrutivos desativados; storage MinIO com facade async
+  (`shared/storage.py`), bucket lazy e erros tipados.
 - **Três níveis de teste prontos** (+ ferramentas de profundidade):
 
 | Nível | Comando | O que cobre |
 |---|---|---|
-| Unitário | `poetry run pytest` | 181 testes, gate de cobertura 90%, property-based (Hypothesis) nos pontos críticos |
-| Integração | `poetry run pytest -m integration --no-cov` | Postgres/Redis/MinIO/broker REAIS (testcontainers), migrações, cenários de falha e recuperação |
-| E2E | `poetry run pytest -m e2e --no-cov` | stack compose completo via httpx, modo dev E production, invariante de isolamento de rede |
-| Mutation | `poetry run mutmut run` | métrica local de força das asserções (config pronta) |
+| Unitário | `uv run pytest` | 185 testes, gate de cobertura 90%, property-based (Hypothesis) nos pontos críticos |
+| Integração | `uv run pytest -m integration --no-cov` | Postgres/Redis/MinIO/broker REAIS (testcontainers), migrações, cenários de falha e recuperação |
+| E2E | `uv run pytest -m e2e --no-cov` | stack compose completo via httpx, modo dev E production, invariante de isolamento de rede |
+| Mutation | `uv run mutmut run` | métrica local de força das asserções (config pronta) |
 
 - **CI completo** (GitHub Actions, SHA-pinned, Node 24): lint (ruff+bandit),
   mypy `--strict`, os 3 níveis de teste, pip-audit, gitleaks e trivy.
@@ -62,11 +65,11 @@ grep -rl "myapp" --exclude-dir=.git . | xargs sed -i 's/myapp/seuprojeto/g; s/My
 
 ```bash
 cp .env.example .env   # ENVIRONMENT é obrigatório — o exemplo já traz development
-poetry install
-poetry run pytest      # 181 verdes antes de qualquer linha sua
+uv sync
+uv run pytest          # 185 verdes antes de qualquer linha sua
 ```
 
-3. Suba o stack completo (API + Postgres + Redis ×2 + MinIO + Celery):
+3. Suba o stack completo (API + Postgres + Redis ×2 + MinIO + TaskIQ):
 
 ```bash
 docker compose up -d --build
@@ -75,11 +78,13 @@ docker compose up -d --build
 
 4. Crie sua primeira feature em `app/features/<nome>/` seguindo o contrato
    (ver "Estrutura do projeto" abaixo) — models entram no `alembic/env.py`,
-   tasks no `include` de `app/worker.py`.
+   tasks em `app/features/<nome>/tasks.py` decoradas com `@broker.task` e
+   importadas em `app/worker.py` para o worker registrá-las.
 
 ## Requisitos
 
-- Python `>=3.12,<3.15` · [Poetry](https://python-poetry.org/) `>=2.0`
+- Python `>=3.14,<3.15` (fixado como `3.14` via `.python-version`) ·
+  [uv](https://docs.astral.sh/uv/)
 - Docker + Docker Compose (stack local, integração e e2e)
 
 ## Serviços Docker
@@ -88,21 +93,21 @@ O `docker-compose.yml` sobe 7 serviços segmentados em 3 redes internas:
 
 | Serviço | Imagem | Porta publicada | Redes | Propósito |
 |---|---|---|---|---|
-| `api` | build local | `127.0.0.1:8001` | data, ratelimit, celery | FastAPI + Uvicorn |
-| `worker` | build local | — | data, celery | Celery worker (2 concorrências) |
-| `beat` | build local | — | data, celery | Celery beat — scheduler periódico |
-| `db` | `postgres:16-alpine` | — | data | PostgreSQL (dados persistentes) |
-| `redis` | `redis:7-alpine` | — | ratelimit | Store do rate-limit (exclusivo) |
-| `redis-celery` | `redis:7-alpine` | — | celery | Broker + result backend do Celery |
-| `minio` | `quay.io/minio/minio` | — | data | Object storage S3-compatible |
+| `api` | build local | `127.0.0.1:8001` | data, ratelimit, taskiq | FastAPI + Uvicorn |
+| `worker` | build local | — | data, taskiq | TaskIQ worker (`--workers 1 --max-async-tasks 2`) |
+| `scheduler` | build local | — | data, taskiq | TaskIQ scheduler — agendador periódico (réplica única) |
+| `db` | `postgres:18-alpine` | — | data | PostgreSQL (dados persistentes) |
+| `redis` | `redis:8-alpine` | — | ratelimit | Store do rate-limit (exclusivo) |
+| `redis-taskiq` | `redis:8-alpine` | — | taskiq | Broker + result backend do TaskIQ |
+| `minio` | `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772` | — | data | Object storage S3-compatible |
 
 **Redes internas** (isolamento least-privilege):
 
 | Rede | Membros | Propósito |
 |---|---|---|
-| `data_net` | api, worker, beat, db, minio | Acesso ao banco e storage |
-| `ratelimit_net` | api, redis | Exclusiva do rate-limit — worker/beat sem rota até essas chaves |
-| `celery_net` | api, worker, beat, redis-celery | Broker e result backend |
+| `data_net` | api, worker, scheduler, db, minio | Acesso ao banco e storage |
+| `ratelimit_net` | api, redis | Exclusiva do rate-limit — worker/scheduler sem rota até essas chaves |
+| `taskiq_net` | api, worker, scheduler, redis-taskiq | Broker e result backend |
 
 Nenhum serviço além da `api` expõe porta ao host. A `api` liga em loopback (`127.0.0.1`) por padrão — ajuste `API_BIND` para expor em outras interfaces conscientemente.
 
@@ -298,7 +303,7 @@ limite de tamanho):
   o `pydantic-settings` lê de `secrets_dir` (ex.: `/run/secrets`), evitando
   expor a credencial no ambiente do processo.
 - **Imagem base fixada por tag, não por digest**: o `Dockerfile` usa
-  `python:3.13-slim` (tag mutável). O CI fixa Actions por SHA; faça o mesmo com a
+  `python:3.14-slim` (tag mutável). O CI fixa Actions por SHA; faça o mesmo com a
   base do Docker — fixe por `@sha256:<digest>` e atualize via Renovate/Dependabot
   (o procedimento para obter o digest está comentado no `Dockerfile`).
 - **`--forwarded-allow-ips` do uvicorn**: deve permanecer no **default restrito**
@@ -327,19 +332,19 @@ limite de tamanho):
 Gerar uma nova migração a partir dos modelos:
 
 ```bash
-poetry run alembic revision --autogenerate -m "descrição da mudança"
+uv run alembic revision --autogenerate -m "descrição da mudança"
 ```
 
 Aplicar as migrações:
 
 ```bash
-poetry run alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ## Testes
 
 ```bash
-poetry run pytest        # roda os testes com cobertura (gate mínimo de 90%)
+uv run pytest        # roda os testes com cobertura (gate mínimo de 90%)
 ```
 
 A cobertura de `app/` é medida por `pytest-cov` e o build falha abaixo de 90%
@@ -348,19 +353,19 @@ A cobertura de `app/` é medida por `pytest-cov` e o build falha abaixo de 90%
 ## Qualidade de código
 
 ```bash
-poetry run ruff check .          # lint (regras fortes: E,F,I,UP,B,S,SIM,PT,...)
-poetry run ruff format .         # formatação
-poetry run mypy .                # checagem de tipos (--strict)
-poetry run pip-audit             # auditoria de CVEs nas dependências
+uv run ruff check .          # lint (regras fortes: E,F,I,UP,B,S,SIM,PT,...)
+uv run ruff format .         # formatação
+uv run mypy .                # checagem de tipos (--strict)
+uv run pip-audit             # auditoria de CVEs nas dependências
 ```
 
 Níveis de teste e métricas extras (Docker necessário p/ integração/e2e):
 
 ```bash
-poetry run pytest                          # unitários (gate de cobertura 90%)
-poetry run pytest -m integration --no-cov  # infra real efêmera (testcontainers)
-poetry run pytest -m e2e --no-cov          # stack compose completo + httpx
-poetry run mutmut run && poetry run mutmut results  # mutation testing (métrica
+uv run pytest                          # unitários (gate de cobertura 90%)
+uv run pytest -m integration --no-cov  # infra real efêmera (testcontainers)
+uv run pytest -m e2e --no-cov          # stack compose completo + httpx
+uv run mutmut run && uv run mutmut results  # mutation testing (métrica
                                            # LOCAL, não é gate de CI — ver spec)
 ```
 
@@ -373,14 +378,14 @@ Arquitetura **feature-first + core + shared** (MVVM semântico):
 ```
 app/
 ├── main.py                # Composition root: create_app() + guards de produção
-├── worker.py              # Entrypoint Celery (worker e beat)
+├── worker.py              # Entrypoint TaskIQ (worker e scheduler)
 ├── core/                  # Infraestrutura transversal — zero regra de negócio
 │   ├── config.py          # Configurações (pydantic-settings)
 │   ├── database.py        # Engine, sessão e Base do SQLAlchemy
 │   ├── limiter.py         # Rate-limit (slowapi)
 │   ├── logging.py         # Logs JSON estruturados
 │   ├── client_ip.py       # Resolução do IP real (X-Forwarded-For)
-│   ├── security_guards.py # Política de credenciais fracas + guards do Celery
+│   ├── security_guards.py # Política de credenciais fracas + guards do TaskIQ
 │   └── middleware/        # Middlewares ASGI (headers, body-size, observabilidade)
 ├── shared/                # Código cross-feature de domínio
 │   └── exceptions.py      # Hierarquia AppException + handler global
@@ -394,7 +399,7 @@ tests/                     # Espelham a estrutura (core/, shared/, features/)
 Anatomia de uma feature: `router.py` (View — HTTP puro), `service.py`
 (ViewModel — caso de uso), `repository.py` + `models.py` (Model),
 `schemas.py` (DTOs), `exceptions.py` (herdam de `shared.exceptions`),
-`tasks.py` (Celery). Regras de dependência: features → core/shared;
+`tasks.py` (TaskIQ). Regras de dependência: features → core/shared;
 shared → core; feature nunca importa de outra feature.
 
 ## Referência de variáveis de ambiente
@@ -458,14 +463,14 @@ Todas as variáveis lidas pelo `Settings` (via `pydantic-settings`). Os defaults
 | `MINIO_ROOT_PASSWORD` | `myapp-minio-dev` | Senha admin — **senha forte obrigatória em produção** |
 | `MINIO_BUCKET` | `myapp-files` | Bucket padrão (criado automaticamente se ausente) |
 
-### Celery
+### TaskIQ
 
 | Variável | Default | Descrição |
 |---|---|---|
-| `CELERY_BROKER_URL` | `redis://:myapp@redis-celery:6379/0` | URL do broker |
-| `CELERY_RESULT_BACKEND` | `redis://:myapp@redis-celery:6379/1` | URL do result backend |
-| `CELERY_TASK_ALWAYS_EAGER` | `false` | Execução síncrona in-process (apenas para testes) |
-| `CELERY_HEARTBEAT_SECONDS` | `60.0` | Cadência do heartbeat do beat |
+| `TASKIQ_BROKER_URL` | `redis://:myapp@redis-taskiq:6379/0` | URL do broker |
+| `TASKIQ_RESULT_BACKEND` | `redis://:myapp@redis-taskiq:6379/1` | URL do result backend |
+| `TASKIQ_IN_MEMORY` | `false` | Execução in-process via `InMemoryBroker` (apenas para testes) |
+| `TASKIQ_HEARTBEAT_SECONDS` | `60.0` | Cadência do heartbeat agendado (`core.ping`) |
 
 ### Docker Compose (não lidas pelo `Settings`)
 
@@ -477,7 +482,7 @@ Variáveis usadas apenas pelo `docker-compose.yml` e pelo `entrypoint.sh`:
 | `POSTGRES_PASSWORD` | `myapp` | Senha do Postgres |
 | `POSTGRES_DB` | `myapp` | Banco criado no container |
 | `REDIS_PASSWORD` | `myapp` | Senha do Redis do rate-limit |
-| `CELERY_REDIS_PASSWORD` | `myapp` | Senha do Redis do Celery |
+| `TASKIQ_REDIS_PASSWORD` | `myapp` | Senha do Redis do TaskIQ |
 | `RUN_MIGRATIONS_ON_START` | `true` | Executa `alembic upgrade head` no boot do container |
 | `HEALTHCHECK_HOST` | `127.0.0.1` | Header `Host` enviado pelo healthcheck do container |
 | `API_BIND` | `127.0.0.1` | Interface de bind da porta da API |
