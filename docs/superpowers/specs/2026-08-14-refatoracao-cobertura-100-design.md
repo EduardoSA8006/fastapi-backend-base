@@ -1,4 +1,4 @@
-# Refatoração alvo + cobertura 100% (combinada) + cenários novos
+# Refatoração alvo + cobertura 100% + cenários novos + padronização de infra
 
 - **Data:** 2026-08-14
 - **Projeto:** fastapi-backend-base (template FastAPI, security-hardened, pós-modernização Python 3.14/uv/TaskIQ)
@@ -13,8 +13,9 @@ Elevar a qualidade do template sem alterar comportamento nem regredir segurança
 1. **Refatoração alvo (evidence-based):** remover duplicação real e extrair helpers onde há ganho concreto de clareza. Nada especulativo — o código já passou por revisão dupla e está limpo.
 2. **Cobertura 100% combinada (unit + integração):** medir cobertura combinando as suítes que rodam código de `app/` in-process, e chegar a 100% de statements, com `# pragma: no cover` apenas para linhas genuinamente inalcançáveis/defensivas.
 3. **Cenários novos (integração + e2e):** adicionar testes comportamentais reais (falha, resiliência, edge cases) além do mínimo para fechar cobertura.
+4. **Padronização de infra (docker-compose):** hardening uniforme em todos os serviços — imagens pinadas por digest, tetos de CPU/memória/pids, `no-new-privileges`, `cap_drop`, e paridade de guards entre os dois Redis. Hoje `redis` (rate-limit) e `db` estão sub-endurecidos vs `redis-taskiq`/`minio`.
 
-Princípio-guia: **comportamento inalterado**. A refatoração é interna; a suíte a 100% é a rede que prova ausência de regressão.
+Princípio-guia: **comportamento inalterado**. A refatoração é interna; a suíte a 100% é a rede que prova ausência de regressão. A padronização de infra é validada subindo o stack (healthy) + e2e.
 
 ## 2. Decisões tomadas (com justificativa)
 
@@ -27,6 +28,9 @@ Princípio-guia: **comportamento inalterado**. A refatoração é interna; a su�
 | Mocks para fechar gaps | **Evitar** | Manter "testes reais > mocks"; fechar gaps com testes in-process contra containers reais. |
 | Guard ASGI dos middlewares | **Não extrair** | 3 linhas idiomáticas; abstrair adiciona indireção e piora clareza (YAGNI). |
 | Blocos `except S3Error` do storage | **Não unificar** | Cada um tem follow-up diferente (not-found, idempotência, drain). |
+| Pin de imagens | **Por digest** (`@sha256:...`) + comentário com a tag | Tag é mutável (supply-chain). Custo: atualização via Renovate/Dependabot. |
+| `maxmemory-policy` do redis rate-limit | **`noeviction`** | Fail-closed, consistente com o broker; chaves pequenas e com TTL. |
+| `cap_drop: ALL` em db/redis | Aplicar, com **`cap_add` mínimo** onde a imagem oficial exige (Postgres/gosu), **validado empiricamente** | Não aplicar às cegas — o entrypoint oficial do Postgres troca de usuário no boot. |
 
 ## 3. Estado atual (baseline)
 
@@ -48,6 +52,9 @@ Ordem: **rede de segurança primeiro, refatoração depois**.
 |---|------|------|
 | A | Infra de cobertura combinada + gaps + cenários novos → 100% combinado | unit + `coverage combine` (unit+integração) `--fail-under=100` + e2e |
 | B | Refatoração alvo (app helpers + dedup de testes) sob a rede | ruff + mypy --strict + gate combinado 100% + e2e |
+| C | Padronização de infra (docker-compose) | `docker compose config` + stack 7/7 healthy + e2e |
+
+As três fases são independentes; a ordem sugerida é A → B → C. Fase C é validada por subida real do stack e pela suíte e2e (que reconstrói a imagem e sobe o compose).
 
 ## 5. Detalhamento — Fase A (cobertura + cenários)
 
@@ -113,11 +120,35 @@ Cada item preserva comportamento; a suíte a 100% valida.
 
 **Não tocar:** guard ASGI dos 4 middlewares; blocos `except S3Error` do storage (ver §2).
 
+## 6.C Detalhamento — Fase C (padronização de infra)
+
+Auditoria atual (o que cada serviço já tem):
+
+| Serviço | digest | no-new-priv | cap_drop ALL | cpus | mem_limit | pids_limit | maxmem/rename |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| db (postgres) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | n/a |
+| redis (rate-limit) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| redis-taskiq | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| minio | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | n/a |
+| api/worker/scheduler | ❌ (base no Dockerfile) | ✅ | ✅ | ✅ | ✅ | ✅ | n/a |
+
+**Baseline uniforme a aplicar em TODO serviço:** `restart: unless-stopped` · imagem **pinada por digest** (comentário com a tag) · `mem_limit` · `cpus` · `pids_limit` · `security_opt: [no-new-privileges:true]` · `cap_drop: [ALL]` (+ `cap_add` mínimo onde a imagem exigir) · healthcheck (já existem). `read_only`+`tmpfs` só onde o workload permite (api/worker/scheduler já têm; db/minio gravam em volume → não).
+
+**Mudanças por serviço:**
+- **`redis` (rate-limit) → paridade com `redis-taskiq`:** adicionar `no-new-privileges`, `cap_drop: [ALL]`, `cpus`, `mem_limit`, `pids_limit`; passar o `command` para o formato `sh -c` com `--maxmemory <N>mb --maxmemory-policy noeviction --appendonly no` e `--rename-command` (FLUSHALL/FLUSHDB/KEYS/CONFIG/DEBUG `""`), e senha via env (`REDISCLI_AUTH` no healthcheck, como o taskiq). Mantém a rede `ratelimit_net` e o `requirepass`.
+- **`db` (postgres) → hardening:** `no-new-privileges`, `cpus`, `mem_limit`, `pids_limit`, e `cap_drop: [ALL]` **com `cap_add` mínimo** para o boot (initdb/gosu trocam para o usuário `postgres`): candidatos `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID` — **determinar o conjunto mínimo empiricamente** (remover um a um até o menor que sobe healthy) e documentar. Se o custo/risco for alto, fallback documentado: manter `no-new-privileges` + limites sem `cap_drop` total, com justificativa.
+- **`minio` / `redis-taskiq`:** adicionar `pids_limit` (único item faltante); digest pin.
+- **`api`/`worker`/`scheduler`:** digest pin da imagem base é no **Dockerfile** (builder e runtime) — pinar `python:3.14-slim@sha256:...` e `ghcr.io/astral-sh/uv:0.12@sha256:...` (o comentário do Dockerfile já recomenda). Compose sem imagem própria (usa `build: .`).
+
+**Pin por digest (compose + Dockerfile):** resolver o digest atual de cada imagem (`docker buildx imagetools inspect <img>` ou `docker inspect --format='{{index .RepoDigests 0}}'`) e fixar `img:tag@sha256:...` mantendo a tag no valor/comentário. Nota de manutenção: digests exigem atualização via Renovate/Dependabot — adicionar essa observação ao README (não configurar o bot neste escopo).
+
+**Validação (obrigatória, empírica):** após cada mudança, `docker compose config` válido e `ENVIRONMENT=development docker compose up -d --build` com os **7 serviços `healthy`** (usar `API_PORT` override se a 8001 estiver ocupada); depois `docker compose down -v`. A suíte **e2e** (que sobe o stack em modo produção) é o gate final da fase. Se um endurecimento quebrar o boot de um serviço, reverter aquele item e documentar o motivo — não deixar o serviço unhealthy.
+
 ## 7. Verificação
 
 - **Fase A:** `uv run pytest` (unit) + `scripts/coverage.sh` (combinado, `--fail-under=100`) + `uv run pytest -m e2e --no-cov`. Docker disponível.
 - **Fase B:** `uv run ruff check . && uv run ruff format --check . && uv run mypy .` + gate combinado 100% + e2e. Cada refator commitado pequeno; a suíte a 100% prova ausência de regressão.
-- Trivy/gitleaks (job security) inalterados; a mudança não toca o Dockerfile.
+- **Fase C:** `docker compose config` válido + stack `up` com 7/7 `healthy` + `docker compose down -v` + e2e. O job `security` (trivy/gitleaks) deve continuar verde — os digest-pins na base do Dockerfile mantêm o mesmo conteúdo já escaneado (o fix de pip/setuptools + `apt-get upgrade` permanecem).
 
 ## 8. Riscos e mitigações
 
@@ -128,13 +159,16 @@ Cada item preserva comportamento; a suíte a 100% valida.
 | Refatoração alterar comportamento sutil (ex.: mensagens de guard) | Manter mensagens literais; a suíte a 100% (inclui `match=`) trava regressão. |
 | Novo cenário e2e (kill scheduler) ser lento/flaky | Janela derivada do TTL, fail-fast se container morre; marcado e2e (fora do gate rápido). |
 | Cobertura combinada exigir Docker na CI | Job `coverage` em runner com Docker (como integration/e2e). |
+| `cap_drop: ALL` quebrar o boot do Postgres (gosu/initdb) | Determinar o `cap_add` mínimo empiricamente; fallback documentado (limites + no-new-privileges sem cap_drop total). Nunca deixar unhealthy. |
+| Digest pin desatualizar/quebrar pull | Manter a tag no comentário; nota no README sobre Renovate/Dependabot. Digest resolvido de imagem já em uso (mesma que passa no e2e/trivy hoje). |
+| Endurecimento do redis rate-limit (noeviction) causar falha de escrita se encher | maxmemory dimensionado com folga; chaves de rate-limit são pequenas e TTL'd. slowapi já é fail-closed; `/health` e `/ready` são isentos. |
 
 ## 9. Fora de escopo
 
 - Branch coverage (opção futura).
 - Reescrever/re-arquitetar módulos limpos; renomeações estéticas.
 - Mudanças de comportamento, novas features de domínio, novas dependências.
-- Mudanças no Dockerfile/imagens/segurança de infra.
+- Mudança de topologia de rede, novos serviços, troca de versões de imagem (só digest-pin da versão atual), ou configurar Renovate/Dependabot (apenas documentar a necessidade). O hardening/padronização do compose e o digest-pin da base do Dockerfile ESTÃO em escopo (Fase C).
 
 ## 10. Rollback
 
