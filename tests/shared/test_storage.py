@@ -7,7 +7,6 @@ REAL é coberto em tests/integration/test_minio.py.
 from typing import Any
 
 import pytest
-from minio.error import S3Error
 
 from app.core.config import Settings
 from app.shared import storage
@@ -16,17 +15,7 @@ from app.shared.storage import (
     StorageObjectNotFoundError,
     StorageUnavailableError,
 )
-
-
-def _s3_error(code: str) -> S3Error:
-    return S3Error(
-        code=code,
-        message="stub",
-        resource="/x",
-        request_id="r",
-        host_id="h",
-        response=None,  # type: ignore[arg-type]
-    )
+from tests.shared.conftest import make_s3_error, reset_storage_singleton
 
 
 class _StubClient:
@@ -40,7 +29,7 @@ class _StubClient:
 
     def _maybe_raise(self) -> None:
         if self._raise_code is not None:
-            raise _s3_error(self._raise_code)
+            raise make_s3_error(self._raise_code)
 
     def put_object(self, **kwargs: Any) -> None:
         self._maybe_raise()
@@ -67,9 +56,7 @@ class _StubClient:
 @pytest.fixture(autouse=True)
 def _reset_storage_state(monkeypatch: pytest.MonkeyPatch) -> None:
     # Limpa o singleton/cache entre testes (estado de módulo).
-    monkeypatch.setattr(storage, "_client", None)
-    monkeypatch.setattr(storage, "_client_spec", None)
-    storage._known_buckets.clear()
+    reset_storage_singleton(monkeypatch)
 
 
 def _use_stub(monkeypatch: pytest.MonkeyPatch, stub: _StubClient) -> None:

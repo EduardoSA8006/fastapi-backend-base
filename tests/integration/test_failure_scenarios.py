@@ -135,6 +135,7 @@ def test_storage_integro_sob_concorrencia(monkeypatch: pytest.MonkeyPatch) -> No
     # concorrência do mesmo processo.
     from app.core.config import Settings
     from app.shared import storage
+    from tests.shared.conftest import reset_storage_singleton
 
     user, password = "myapp-svc-test", "S3nhaTesteMinio123"
     container = (
@@ -155,9 +156,7 @@ def test_storage_integro_sob_concorrencia(monkeypatch: pytest.MonkeyPatch) -> No
             minio_root_password=password,
         )
         monkeypatch.setattr(storage, "get_settings", lambda: settings)
-        monkeypatch.setattr(storage, "_client", None)
-        monkeypatch.setattr(storage, "_client_spec", None)
-        storage._known_buckets.clear()
+        reset_storage_singleton(monkeypatch)
         try:
 
             async def _hammer() -> None:

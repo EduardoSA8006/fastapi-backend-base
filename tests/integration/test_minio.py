@@ -13,6 +13,7 @@ from testcontainers.core.waiting_utils import wait_for_logs
 from app.core.config import Settings
 from app.shared import storage
 from app.shared.storage import StorageObjectNotFoundError, StorageUnavailableError
+from tests.shared.conftest import reset_storage_singleton
 
 pytestmark = pytest.mark.integration
 
@@ -48,9 +49,7 @@ def _wire_storage(minio_settings: Settings, monkeypatch: pytest.MonkeyPatch) -> 
     # A facade lê settings de get_settings(); aponta para o container efêmero
     # e zera o singleton/cache para reconstruir com o endpoint do teste.
     monkeypatch.setattr(storage, "get_settings", lambda: minio_settings)
-    monkeypatch.setattr(storage, "_client", None)
-    monkeypatch.setattr(storage, "_client_spec", None)
-    storage._known_buckets.clear()
+    reset_storage_singleton(monkeypatch)
 
 
 async def test_put_get_delete_round_trip() -> None:
@@ -117,9 +116,7 @@ async def test_credencial_invalida_mapeia_para_storage_unavailable(
         minio_bucket=_BUCKET,
     )
     monkeypatch.setattr(storage, "get_settings", lambda: ruim)
-    monkeypatch.setattr(storage, "_client", None)
-    monkeypatch.setattr(storage, "_client_spec", None)
-    storage._known_buckets.clear()
+    reset_storage_singleton(monkeypatch)
 
     with pytest.raises(StorageUnavailableError):
         await storage.put_object(
