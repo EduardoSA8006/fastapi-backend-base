@@ -12,7 +12,7 @@ from testcontainers.core.waiting_utils import wait_for_logs
 
 from app.core.config import Settings
 from app.shared import storage
-from app.shared.storage import StorageObjectNotFoundError
+from app.shared.storage import StorageObjectNotFoundError, StorageUnavailableError
 
 pytestmark = pytest.mark.integration
 
@@ -81,3 +81,32 @@ async def test_get_de_chave_inexistente_da_404_tipado() -> None:
 
 async def test_delete_idempotente_contra_servidor_real() -> None:
     await storage.delete_object(bucket=_BUCKET, key="nunca/existiu")  # não levanta
+
+
+async def test_novas_settings_reconstroem_o_client() -> None:
+    # Cobre o rebuild de _get_client/_spec (storage.py:64-86): a mesma facade,
+    # apontada para um endpoint DIFERENTE, precisa descartar o singleton e
+    # reconstruir o Minio com a nova spec (senão testes/reload vazariam client).
+    first = storage._get_client()
+    assert storage._get_client() is first  # spec estável -> mesmo objeto
+    changed = storage._spec().__class__(
+        endpoint="outro-host:9000",
+        access_key=_USER,
+        secret_key=_PASSWORD,
+        secure=False,
+    )
+    storage._known_buckets.add(_BUCKET)
+    storage._client_spec = changed  # força divergência de spec
+    rebuilt = storage._get_client()
+    assert rebuilt is not first  # spec mudou -> client reconstruído
+    assert storage._known_buckets == set()  # cache de buckets zerado no rebuild
+
+
+async def test_delete_erro_inesperado_do_s3_vira_503() -> None:
+    # Cobre o ramo de erro NÃO-notfound do delete (storage.py:160-164): um
+    # remove_object contra um bucket inexistente devolve S3Error 'NoSuchBucket'
+    # (fora de _NOT_FOUND_CODES) -> StorageUnavailableError (503 via handler).
+    # Pré-semeia _known_buckets para _ensure_bucket não criar o bucket antes.
+    storage._known_buckets.add("bucket-que-nunca-existiu")
+    with pytest.raises(StorageUnavailableError):
+        await storage.delete_object(bucket="bucket-que-nunca-existiu", key="k")
