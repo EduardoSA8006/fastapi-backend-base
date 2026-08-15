@@ -211,3 +211,167 @@ def test_worker_se_recupera_de_restart(stack: str) -> None:
             return
         time.sleep(5)
     raise AssertionError("worker não voltou a healthy após restart")
+
+
+def test_scheduler_morto_marcador_expira_fica_unhealthy(stack: str) -> None:
+    """Scheduler travado -> marcador expira (TTL) -> healthcheck reprova.
+
+    `myapp-scheduler` fica `unhealthy` quando o marcador `myapp:taskiq:
+    heartbeat` fica obsoleto; `myapp-worker` (pipeline independente) segue
+    `healthy` — congela o processo sem matar o container.
+
+    Por que SIGSTOP e não `docker kill` no container inteiro: o Docker, ao
+    perceber a MORTE de um container com healthcheck configurado, marca
+    Health.Status=unhealthy IMEDIATAMENTE (log sintético com o exit code do
+    processo, confirmado empiricamente) — isso provaria só essa mecânica
+    genérica do Docker, não que o PIPELINE real (scheduler -> marcador ->
+    healthcheck) detecta staleness. Por isso congelamos só o PROCESSO do
+    scheduler com SIGSTOP (`docker kill --signal=STOP`): o container continua
+    `running` (o healthcheck, um `exec` em processo novo, roda normalmente),
+    mas o processo parado não publica mais a task `ping` agendada — o
+    marcador no broker envelhece de verdade até o TTL (3x
+    TASKIQ_HEARTBEAT_SECONDS, default 180s) e o healthcheck do scheduler
+    (interval 60s, retries 3 — fixos no compose, que não muda aqui) reprova 3
+    vezes seguidas de forma orgânica.
+
+    Timing: sem tocar app/ nem docker-compose.yml, não dá para encurtar
+    interval/retries/start_period do healthcheck (fixos no compose), nem a
+    cadência do heartbeat sem mexer no conftest de um jeito que quebraria o
+    teste de "cadência real" (test_scheduler_heartbeat_real_no_stack, que
+    depende do default de 60s). Aceita-se a janela bounded (deadlines
+    generosos, ~3-6min no total) em vez de sleep indefinido.
+    """
+    import subprocess
+    import time
+
+    # Pré-condição: o scheduler precisa estar saudável (marcador fresco)
+    # antes de congelá-lo — senão provaríamos só um estado transitório de
+    # boot. Bounded pelo start_period do compose (210s) + folga; na prática
+    # deve resolver quase de imediato, pois os testes anteriores do módulo já
+    # consumiram bastante tempo de parede desde o start do scheduler.
+    scheduler_pronto = False
+    deadline = time.monotonic() + 250
+    while time.monotonic() < deadline:
+        health = container_state("myapp-scheduler").get("Health", {}).get("Status")
+        if health == "healthy":
+            scheduler_pronto = True
+            break
+        time.sleep(5)
+    if not scheduler_pronto:
+        raise AssertionError("scheduler não ficou healthy a tempo do teste")
+
+    subprocess.run(
+        ["docker", "kill", "--signal=STOP", "myapp-scheduler"],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    try:
+        # TTL (180s) + até 3 checks reprovando (60s cada) para o Docker
+        # acumular falhas suficientes e virar unhealthy.
+        ficou_unhealthy = False
+        deadline = time.monotonic() + 420
+        while time.monotonic() < deadline:
+            health = container_state("myapp-scheduler").get("Health", {}).get("Status")
+            if health == "unhealthy":
+                ficou_unhealthy = True
+                break
+            time.sleep(5)
+        if not ficou_unhealthy:
+            raise AssertionError(
+                "scheduler não ficou unhealthy após o marcador expirar"
+            )
+
+        # Pipeline independente: o healthcheck do worker é o round-trip real
+        # do TaskIQ pelo broker — não depende do scheduler estar de pé.
+        worker_health = container_state("myapp-worker").get("Health", {}).get("Status")
+        assert worker_health == "healthy"
+    finally:
+        # Descongela o processo (best-effort, sem `return`/exceção aqui: não
+        # pode mascarar uma falha do bloco `try` acima). O teardown do módulo
+        # (`down -v`) cuida do resto de qualquer forma.
+        subprocess.run(
+            ["docker", "kill", "--signal=CONT", "myapp-scheduler"],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+
+
+def test_rate_limit_ponta_a_ponta_estoura_429(stack: str) -> None:
+    """Rajada real contra endpoint NÃO isento (`/`) -> 429 com Retry-After.
+
+    `/api/v1/health` e `/api/v1/ready` são isentos do rate-limit (ver
+    `app/main.py`, registrados em `limiter._exempt_routes`); a rota raiz `/`
+    não é. O compose sobe com RATE_LIMIT_DEFAULT default (100/minute) — a
+    rajada abaixo (200 chamadas concorrentes) estoura essa cota com folga.
+    """
+    import concurrent.futures
+
+    def _hit(_: int) -> httpx.Response:
+        with httpx.Client(base_url=stack, timeout=10) as client:
+            return client.get("/")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+        responses = list(pool.map(_hit, range(200)))
+
+    statuses = [r.status_code for r in responses]
+    assert 429 in statuses, f"rate-limit não disparou na rajada: {statuses}"
+    limitada = next(r for r in responses if r.status_code == 429)
+    assert "Retry-After" in limitada.headers
+    assert limitada.json()["detail"] == "Rate limit exceeded"
+
+
+def test_ready_degrada_quando_dependencia_cai(stack: str) -> None:
+    """Derruba o Redis do rate-limit (o mesmo lido pelo `/ready`) -> 503 real,
+    com o detalhe da dependência no corpo.
+
+    Restaura a dependência ao final (`finally`, incondicional): o stack
+    precisa seguir saudável para os outros testes e para o teardown do
+    módulo — não deixamos o ambiente quebrado.
+    """
+    import subprocess
+    import time
+
+    subprocess.run(
+        ["docker", "stop", "myapp-redis"], check=True, capture_output=True, timeout=30
+    )
+    try:
+        # readiness_cache_seconds (default 3s) poderia devolver um /ready
+        # cacheado de antes da queda — a janela de retry acima disso cobre a
+        # corrida sem depender de um sleep fixo.
+        response: httpx.Response | None = None
+        deadline = time.monotonic() + 20
+        with httpx.Client(base_url=stack, timeout=10) as client:
+            while time.monotonic() < deadline:
+                response = client.get("/api/v1/ready")
+                if response.status_code == 503:
+                    break
+                time.sleep(1)
+        assert response is not None
+        assert response.status_code == 503, (
+            f"esperado 503 com o redis fora; body={response.json()}"
+        )
+        body = response.json()
+        assert body["checks"]["redis"] == "error"
+        assert body["checks"]["database"] == "ok"
+    finally:
+        # Restauração incondicional (best-effort no wait de saudável, mas o
+        # `docker start` em si precisa suceder — sem ele o stack fica
+        # quebrado para o resto da suíte/teardown).
+        subprocess.run(
+            ["docker", "start", "myapp-redis"],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        restaurado = False
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            health = container_state("myapp-redis").get("Health", {}).get("Status")
+            if health == "healthy":
+                restaurado = True
+                break
+            time.sleep(2)
+        if not restaurado:
+            raise AssertionError("myapp-redis não voltou a healthy após restauração")
