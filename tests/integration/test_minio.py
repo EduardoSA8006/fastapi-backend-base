@@ -102,6 +102,34 @@ async def test_novas_settings_reconstroem_o_client() -> None:
     assert storage._known_buckets == set()  # cache de buckets zerado no rebuild
 
 
+async def test_credencial_invalida_mapeia_para_storage_unavailable(
+    minio_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Endpoint REAL, mas secret_key ERRADA: o MinIO responde 403
+    # (assinatura inválida) num HEAD de bucket dentro de _ensure_bucket. É um
+    # S3Error fora de _NOT_FOUND_CODES → a facade DEVE mapear para
+    # StorageUnavailableError (503 via handler), sem vazar a S3Error crua do SDK.
+    ruim = Settings(
+        minio_endpoint=minio_settings.minio_endpoint,
+        minio_use_ssl=False,
+        minio_root_user=_USER,
+        minio_root_password="senha-totalmente-errada-999",
+        minio_bucket=_BUCKET,
+    )
+    monkeypatch.setattr(storage, "get_settings", lambda: ruim)
+    monkeypatch.setattr(storage, "_client", None)
+    monkeypatch.setattr(storage, "_client_spec", None)
+    storage._known_buckets.clear()
+
+    with pytest.raises(StorageUnavailableError):
+        await storage.put_object(
+            bucket="bucket-cred-invalida",
+            key="k",
+            data=b"x",
+            content_type="text/plain",
+        )
+
+
 async def test_delete_erro_inesperado_do_s3_vira_503() -> None:
     # Cobre o ramo de erro NÃO-notfound do delete (storage.py:160-164): um
     # remove_object contra um bucket inexistente devolve S3Error 'NoSuchBucket'
