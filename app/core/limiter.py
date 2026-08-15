@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.core.client_ip import resolve_client_ip
-from app.core.config import Settings
+from app.core.config import REDIS_PROBE_TIMEOUT_SECONDS, Settings
 
 
 def build_key_func(settings: Settings) -> Callable[[Request], str]:
@@ -42,7 +42,10 @@ def create_limiter(settings: Settings) -> Limiter:
     # (memory://, usado em dev/testes) levantaria erro.
     storage_options: dict[str, int] = {}
     if settings.rate_limit_storage_uri.startswith("redis"):
-        storage_options = {"socket_timeout": 2, "socket_connect_timeout": 2}
+        storage_options = {
+            "socket_timeout": REDIS_PROBE_TIMEOUT_SECONDS,
+            "socket_connect_timeout": REDIS_PROBE_TIMEOUT_SECONDS,
+        }
 
     return Limiter(
         key_func=build_key_func(settings),

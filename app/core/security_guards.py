@@ -34,6 +34,13 @@ WEAK_PASSWORDS = {
 # isolamento de rede.
 WEAK_MINIO_USERS = {"myapp", "minio", "admin", "root", "minioadmin", ""}
 
+
+def _reject_if_weak_password(password: str, message: str) -> None:
+    """Levanta ValueError(message) se a senha estiver na blocklist de fracas."""
+    if password in WEAK_PASSWORDS:
+        raise ValueError(message)
+
+
 # Schemes aceitos para broker/result-backend do TaskIQ. A arquitetura usa um
 # Redis dedicado (redis-taskiq); rediss:// (TLS) fica aceito desde já para o
 # caso de o broker um dia cruzar a fronteira de host.
@@ -73,12 +80,12 @@ def validate_taskiq_security(settings: Settings) -> None:
                 f"recebido scheme {parsed.scheme!r}."
             )
         # Mesma régua de senha do banco/Redis/MinIO; ausente vira "" (fraca).
-        if (parsed.password or "") in WEAK_PASSWORDS:
-            raise ValueError(
-                f"Senha do TaskIQ default/fraca (ou ausente) no {label} não é "
-                "permitida em produção. Use uma senha forte "
-                "(redis://:SENHA@redis-taskiq:6379/N)."
-            )
+        _reject_if_weak_password(
+            parsed.password or "",
+            f"Senha do TaskIQ default/fraca (ou ausente) no {label} não é "
+            "permitida em produção. Use uma senha forte "
+            "(redis://:SENHA@redis-taskiq:6379/N).",
+        )
 
     # Invariante arquitetural: broker/backend NÃO podem ser a mesma instância
     # (host:port) do Redis do rate-limit. A separação garante que um task
@@ -142,17 +149,17 @@ def validate_production(settings: Settings) -> None:
         "redis"
     ):
         redis_password = urlparse(settings.rate_limit_storage_uri).password or ""
-        if redis_password in WEAK_PASSWORDS:
-            raise ValueError(
-                "Senha do Redis default/fraca (ou ausente) não é permitida em "
-                "produção. Use uma senha forte na RATE_LIMIT_STORAGE_URI "
-                "(redis://:SENHA@host:porta/db)."
-            )
-    if settings.minio_root_password in WEAK_PASSWORDS:
-        raise ValueError(
-            "Senha do MinIO default/fraca (ou ausente) não é permitida em "
-            "produção. Defina MINIO_ROOT_PASSWORD com uma senha forte."
+        _reject_if_weak_password(
+            redis_password,
+            "Senha do Redis default/fraca (ou ausente) não é permitida em "
+            "produção. Use uma senha forte na RATE_LIMIT_STORAGE_URI "
+            "(redis://:SENHA@host:porta/db).",
         )
+    _reject_if_weak_password(
+        settings.minio_root_password,
+        "Senha do MinIO default/fraca (ou ausente) não é permitida em "
+        "produção. Defina MINIO_ROOT_PASSWORD com uma senha forte.",
+    )
     # Defesa-em-profundidade: além da senha, o usuário admin do MinIO não pode
     # ser um nome óbvio (root previsível encurta enumeração se a porta vazar).
     if settings.minio_root_user.strip().lower() in WEAK_MINIO_USERS:
@@ -163,11 +170,11 @@ def validate_production(settings: Settings) -> None:
     # SQLite não tem senha — ignorado.
     if not settings.database_url.startswith("sqlite"):
         db_password = make_url(settings.database_url).password or ""
-        if db_password in WEAK_PASSWORDS:
-            raise ValueError(
-                "Senha de banco default/fraca não é permitida em produção. "
-                "Use uma senha forte na DATABASE_URL."
-            )
+        _reject_if_weak_password(
+            db_password,
+            "Senha de banco default/fraca não é permitida em produção. "
+            "Use uma senha forte na DATABASE_URL.",
+        )
     # Broker/result backend do TaskIQ (compartilhado com o worker).
     validate_taskiq_security(settings)
     # Avisos de topologia de proxy — a app não detecta a topologia com

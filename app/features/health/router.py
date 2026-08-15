@@ -6,7 +6,7 @@ from sqlalchemy import text
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.core.config import Settings, get_settings
+from app.core.config import REDIS_PROBE_TIMEOUT_SECONDS, Settings, get_settings
 
 router = APIRouter(tags=["health"])
 
@@ -68,8 +68,8 @@ def readiness(request: Request) -> JSONResponse:
         try:
             client = redis.from_url(
                 settings.rate_limit_storage_uri,
-                socket_connect_timeout=2,
-                socket_timeout=2,
+                socket_connect_timeout=REDIS_PROBE_TIMEOUT_SECONDS,
+                socket_timeout=REDIS_PROBE_TIMEOUT_SECONDS,
             )
             client.ping()
             checks["redis"] = "ok"
