@@ -113,6 +113,19 @@ markers = [
     "e2e: exige Docker — sobe o stack compose isolado (myapp-e2e) e ataca de fora com httpx",
 ]
 
+[tool.coverage.run]
+source = ["app"]
+# parallel não é necessário: o script usa --cov-append num único .coverage.
+
+[tool.coverage.report]
+show_missing = true
+# fail_under NÃO fica aqui (senão a run unit rápida passaria a exigir 100%);
+# o gate de 100% é aplicado só no script combinado, via CLI --fail-under=100.
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1,<10.0.0",
