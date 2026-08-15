@@ -108,26 +108,7 @@ async def test_boundary_propaga_excecao_mid_stream() -> None:
 
 async def test_boundary_passa_direto_scope_nao_http() -> None:
     # lifespan/websocket não são interceptados.
-    from starlette.types import Message
-
     from app.core.middleware.error_boundary import ErrorBoundaryMiddleware
+    from tests.core.conftest import assert_non_http_scope_passthrough
 
-    called: dict[str, bool] = {}
-
-    async def _inner(scope: object, receive: object, send: object) -> None:
-        called["ok"] = True
-        # Identidade dos argumentos: o passthrough repassa EXATAMENTE o que
-        # recebeu (mutantes scope/receive/send -> None sobreviviam sem isto).
-        assert scope is expected_scope
-        assert receive is _receive
-        assert send is _send
-
-    async def _receive() -> Message:
-        return {"type": "lifespan.startup"}
-
-    async def _send(message: Message) -> None:
-        pass
-
-    expected_scope = {"type": "lifespan"}
-    await ErrorBoundaryMiddleware(_inner)(expected_scope, _receive, _send)
-    assert called == {"ok": True}
+    await assert_non_http_scope_passthrough(ErrorBoundaryMiddleware)
