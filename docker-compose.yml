@@ -30,6 +30,42 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # Endurecimento do container (sem read_only: o Postgres grava em PGDATA):
+    security_opt:
+      - no-new-privileges:true # impede escalonamento via setuid
+    cpus: 1.0                  # teto de CPU
+    mem_limit: 256m            # teto de memória
+    pids_limit: 128            # limita fork bombs
+    # cap_drop: ALL + o MENOR cap_add que sobe `healthy`, determinado
+    # EMPIRICAMENTE (não às cegas): partindo do superconjunto candidato
+    # [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID], removendo UMA cap por vez e
+    # re-testando tanto o first-boot (initdb, volume limpo) quanto o restart com
+    # dados existentes. Matriz obtida (remover a cap do conjunto cheio → sobe?):
+    #   - sem CHOWN       → QUEBRA no first-boot: `chown /var/lib/postgresql/data:
+    #                       Operation not permitted` (initdb precisa dar chown do
+    #                       PGDATA para o usuário postgres).
+    #   - sem DAC_OVERRIDE→ first-boot OK, mas QUEBRA no restart-com-dados:
+    #                       `find /var/lib/postgresql/data: Permission denied` (o
+    #                       entrypoint, como root, varre o PGDATA já pertencente
+    #                       ao postgres; sem DAC_OVERRIDE o root fica sem bypass
+    #                       de permissão de diretório).
+    #   - sem FOWNER      → OK em first-boot E restart → FOWNER é DESNECESSÁRIA
+    #                       (CHOWN+DAC_OVERRIDE já cobrem os ajustes de dono/perm).
+    #   - sem SETGID      → QUEBRA: `gosu: failed switching to 'postgres':
+    #                       operation not permitted` (setgid ao trocar de usuário).
+    #   - sem SETUID      → QUEBRA: mesmo erro do gosu (setuid ao trocar de usuário).
+    # Conjunto MÍNIMO que sobe healthy (first-boot E restart): abaixo.
+    #   CHOWN        → initdb dá chown do PGDATA para o usuário postgres.
+    #   DAC_OVERRIDE → o entrypoint (root) percorre/lê o PGDATA do postgres no
+    #                  restart com dados já existentes.
+    #   SETGID+SETUID→ o gosu troca de root para o usuário postgres no boot.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
 
   redis:
     image: redis:8-alpine # (digest pin vem na Task C3)
