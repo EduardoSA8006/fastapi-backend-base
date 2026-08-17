@@ -1,38 +1,25 @@
 import logging
-from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.main import create_app
+from tests.conftest import client_with_raising_route
 
-
-def _crashing_client(**overrides: Any) -> TestClient:
-    """App real (create_app) com uma rota que levanta exceção NÃO-tratada."""
-    from tests.conftest import make_settings
-
-    app = create_app(make_settings(**overrides))
-
-    @app.get("/_crash")
-    def _crash() -> None:
-        raise RuntimeError("segredo interno: senha=abc123")
-
-    return TestClient(app, raise_server_exceptions=False)
+_SEGREDO = "segredo interno: senha=abc123"
 
 
 def test_500_inesperado_vira_json_padronizado() -> None:
     # Sem o boundary, o ServerErrorMiddleware do Starlette devolve text/plain
     # "Internal Server Error" — fora do contrato {"detail": ...} da API.
-    client = _crashing_client()
-    response = client.get("/_crash")
+    client = client_with_raising_route(RuntimeError(_SEGREDO))
+    response = client.get("/_boom")
     assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert response.json() == {"detail": "Erro interno."}
 
 
 def test_500_inesperado_nao_vaza_detalhes_internos() -> None:
-    client = _crashing_client()
-    response = client.get("/_crash")
+    client = client_with_raising_route(RuntimeError(_SEGREDO))
+    response = client.get("/_boom")
     assert "RuntimeError" not in response.text
     assert "segredo" not in response.text
     assert "abc123" not in response.text
@@ -41,8 +28,8 @@ def test_500_inesperado_nao_vaza_detalhes_internos() -> None:
 def test_500_inesperado_sai_com_security_headers_e_request_id() -> None:
     # A resposta nasce DENTRO da pilha de middleware: SecurityHeaders e
     # RequestContext a veem — única resposta da API que antes saía sem nada.
-    client = _crashing_client()
-    response = client.get("/_crash")
+    client = client_with_raising_route(RuntimeError(_SEGREDO))
+    response = client.get("/_boom")
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.headers.get("X-Frame-Options") == "DENY"
     assert response.headers.get("X-Request-ID")
@@ -53,9 +40,9 @@ def test_crash_aparece_no_access_log_com_request_id(
 ) -> None:
     # Antes, a requisição que crashava era a ÚNICA que sumia do access log
     # (o log só disparava em http.response.start).
-    client = _crashing_client()
+    client = client_with_raising_route(RuntimeError(_SEGREDO))
     with caplog.at_level(logging.INFO, logger="myapp.access"):
-        client.get("/_crash", headers={"X-Request-ID": "crash-test-id-123"})
+        client.get("/_boom", headers={"X-Request-ID": "crash-test-id-123"})
     records = [r for r in caplog.records if getattr(r, "status", None) == 500]
     assert records, "crash não apareceu no access log"
     assert getattr(records[0], "request_id", None) == "crash-test-id-123"
@@ -66,9 +53,9 @@ def test_excecao_logada_com_stacktrace_e_request_id(
 ) -> None:
     # A causa (stacktrace) é registrada no log estruturado, correlacionada
     # pelo mesmo request_id do access log.
-    client = _crashing_client()
+    client = client_with_raising_route(RuntimeError(_SEGREDO))
     with caplog.at_level(logging.ERROR, logger="myapp.errors"):
-        client.get("/_crash", headers={"X-Request-ID": "crash-test-id-456"})
+        client.get("/_boom", headers={"X-Request-ID": "crash-test-id-456"})
     records = [r for r in caplog.records if r.name == "myapp.errors"]
     assert records, "exceção não foi logada"
     record = records[0]

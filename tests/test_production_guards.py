@@ -14,15 +14,11 @@ from tests.conftest import STRONG_REDIS_URI, make_prod_settings
 
 
 def test_production_rejects_wildcard_trusted_hosts() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="trusted_hosts"):
         create_app(make_prod_settings(trusted_hosts=["*"]))
 
 
 def test_production_rejects_memory_rate_limit_store() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="store compartilhado"):
         create_app(
             make_prod_settings(
@@ -32,8 +28,6 @@ def test_production_rejects_memory_rate_limit_store() -> None:
 
 
 def test_production_rejects_debug_true() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="DEBUG"):
         create_app(make_prod_settings(debug=True))
 
@@ -58,23 +52,14 @@ def test_production_valid_config_boots() -> None:
     assert app is not None
 
 
-def test_production_rejects_weak_redis_password() -> None:
+@pytest.mark.parametrize("url", ["redis://:myapp@redis:6379/0", "redis://redis:6379/0"])
+def test_production_rejects_weak_redis_password(url: str) -> None:
+    # Cobre senha fraca e senha ausente (URL sem credencial) — paridade com o banco.
     with pytest.raises(ValueError, match="Redis"):
         create_app(
             make_prod_settings(
                 rate_limit_enabled=True,
-                rate_limit_storage_uri="redis://:myapp@redis:6379/0",
-            )
-        )
-
-
-def test_production_rejects_redis_without_password() -> None:
-    # Senha ausente (URL sem credencial) também é barrada — paridade com o banco.
-    with pytest.raises(ValueError, match="Redis"):
-        create_app(
-            make_prod_settings(
-                rate_limit_enabled=True,
-                rate_limit_storage_uri="redis://redis:6379/0",
+                rate_limit_storage_uri=url,
             )
         )
 

@@ -82,6 +82,19 @@ def make_client(**overrides: Any) -> TestClient:
     return TestClient(create_app(make_settings(**overrides)))
 
 
+def client_with_raising_route(exc: BaseException, **overrides: Any) -> TestClient:
+    """App real com rota /_boom que levanta `exc`; server exceptions não propagam."""
+    from app.main import create_app
+
+    app = create_app(make_settings(**overrides))
+
+    @app.get("/_boom")
+    def _boom() -> None:
+        raise exc
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
 def make_rl_client(
     *, raise_server_exceptions: bool = True, **overrides: Any
 ) -> TestClient:

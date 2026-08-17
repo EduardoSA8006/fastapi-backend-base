@@ -2,9 +2,8 @@
 
 import pytest
 
-from app.core.config import Settings
 from app.main import create_app
-from tests.conftest import make_client
+from tests.conftest import make_client, make_settings
 
 
 def test_trusted_host_rejects_unknown_host() -> None:
@@ -44,11 +43,4 @@ def test_cors_preflight_allows_configured_origin() -> None:
 def test_cors_credentials_with_wildcard_origin_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="cors_allow_credentials"):
-        create_app(
-            Settings(
-                cors_allow_credentials=True,
-                cors_allow_origins=["*"],
-                rate_limit_storage_uri="memory://",
-                trusted_hosts=["testserver"],
-            )
-        )
+        create_app(make_settings(cors_allow_credentials=True, cors_allow_origins=["*"]))
