@@ -10,8 +10,10 @@ from app.core.client_ip import resolve_client_ip
 logger = logging.getLogger("myapp.access")
 
 # X-Request-ID aceito do cliente: apenas caracteres seguros e tamanho limitado.
-# Evita CRLF/controle (log injection) e IDs absurdamente longos.
-_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+# Evita CRLF/controle (log injection) e IDs absurdamente longos. Usa \A/\Z (não
+# ^/$) porque $ também casa antes de um '\n' final, deixando passar um ID
+# terminado em newline — abrindo brecha para log injection.
+_REQUEST_ID_RE = re.compile(r"\A[A-Za-z0-9._-]{1,128}\Z")
 
 
 class RequestContextMiddleware:
