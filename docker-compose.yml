@@ -32,21 +32,58 @@ services:
       retries: 5
 
   redis:
-    image: redis:8-alpine
+    image: redis:8-alpine # (digest pin vem na Task C3)
     container_name: myapp-redis
     restart: unless-stopped
-    # Exige senha mesmo na rede interna (um container comprometido não conecta
-    # sem credencial; impede FLUSHALL/leitura anônima das chaves do rate-limit).
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-myapp}"]
+    # Instância dedicada do rate-limit — segmentada de redis-taskiq (ver
+    # ratelimit_net acima). Mesmo hardening do broker: `sh -c` para a senha vir
+    # do environment (expandida pelo shell do container, não fica no argv
+    # visível do compose):
+    #   - rename-command "": desativa comandos destrutivos/de reconhecimento
+    #     (um container comprometido não consegue FLUSH/varrer/reconfigurar);
+    #   - maxmemory + noeviction: fail-closed — quando cheio, escrita falha
+    #     alto (monitorável) em vez de descartar chaves de rate-limit
+    #     silenciosamente, o que abriria uma janela sem limite;
+    #   - appendonly no: contadores de rate-limit são transitórios, não
+    #     precisam de durabilidade em disco.
+    command:
+      - sh
+      - -c
+      - >
+        exec redis-server
+        --requirepass "$$REDIS_PASSWORD"
+        --rename-command FLUSHALL ""
+        --rename-command FLUSHDB ""
+        --rename-command KEYS ""
+        --rename-command CONFIG ""
+        --rename-command DEBUG ""
+        --maxmemory 64mb
+        --maxmemory-policy noeviction
+        --appendonly no
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-myapp}
     # Sem `ports:` — o Redis NÃO é exposto ao host. Acessível apenas pela rede
     # interna do Docker (pelo serviço `api`), via o hostname `redis`.
     expose:
       - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-myapp}", "ping"]
+      # REDISCLI_AUTH (env) em vez de `-a senha`: a credencial não aparece em
+      # `ps`/argv dentro do container durante o probe.
+      test:
+        [
+          "CMD-SHELL",
+          'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG',
+        ]
       interval: 5s
       timeout: 3s
       retries: 5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    cpus: 0.5
+    mem_limit: 128m
     networks:
       - ratelimit_net
 
