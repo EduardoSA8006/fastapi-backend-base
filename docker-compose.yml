@@ -80,8 +80,13 @@ services:
     #   - maxmemory + noeviction: fail-closed — quando cheio, escrita falha
     #     alto (monitorável) em vez de descartar chaves de rate-limit
     #     silenciosamente, o que abriria uma janela sem limite;
-    #   - appendonly no: contadores de rate-limit são transitórios, não
-    #     precisam de durabilidade em disco.
+    #   - appendonly no + save "": contadores de rate-limit são transitórios,
+    #     não precisam de durabilidade em disco. `save ""` desativa os
+    #     save-points de RDB (além do AOF já desligado) — sem isso, o
+    #     BGSAVE automático falha sob cap_drop: ALL (root perde
+    #     DAC_OVERRIDE e não consegue gravar em /data, dono do uid 999 da
+    #     imagem), e o Redis passa a recusar TODAS as escritas
+    #     (stop-writes-on-bgsave-error).
     command:
       - sh
       - -c
@@ -96,6 +101,7 @@ services:
         --maxmemory 64mb
         --maxmemory-policy noeviction
         --appendonly no
+        --save ""
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-myapp}
     # Sem `ports:` — o Redis NÃO é exposto ao host. Acessível apenas pela rede
@@ -135,8 +141,13 @@ services:
     #     (um task comprometido não consegue FLUSH/varrer/reconfigurar);
     #   - maxmemory + noeviction: broker NUNCA descarta mensagens
     #     silenciosamente — quando cheio, escrita falha alto (monitorável);
-    #   - appendonly no: filas são transitórias; durabilidade vem do
-    #     acks_late + redelivery, não do disco.
+    #   - appendonly no + save "": filas são transitórias; durabilidade vem
+    #     do acks_late + redelivery, não do disco. `save ""` desativa os
+    #     save-points de RDB (além do AOF já desligado) — sem isso, o
+    #     BGSAVE automático falha sob cap_drop: ALL (root perde
+    #     DAC_OVERRIDE e não consegue gravar em /data, dono do uid 999 da
+    #     imagem), e o Redis passa a recusar TODAS as escritas
+    #     (stop-writes-on-bgsave-error) — quebrando broker/scheduler.
     command:
       - sh
       - -c
@@ -151,6 +162,7 @@ services:
         --maxmemory 128mb
         --maxmemory-policy noeviction
         --appendonly no
+        --save ""
     environment:
       TASKIQ_REDIS_PASSWORD: ${TASKIQ_REDIS_PASSWORD:-myapp}
     # Sem `ports:` — não é exposto ao host; alcançável só em taskiq_net.
