@@ -302,10 +302,11 @@ limite de tamanho):
   Docker/Swarm secrets ou um secrets manager montando a senha por **arquivo** —
   o `pydantic-settings` lê de `secrets_dir` (ex.: `/run/secrets`), evitando
   expor a credencial no ambiente do processo.
-- **Imagem base fixada por tag, não por digest**: o `Dockerfile` usa
-  `python:3.14-slim` (tag mutável). O CI fixa Actions por SHA; faça o mesmo com a
-  base do Docker — fixe por `@sha256:<digest>` e atualize via Renovate/Dependabot
-  (o procedimento para obter o digest está comentado no `Dockerfile`).
+- **Imagens fixadas por digest**: as bases do `Dockerfile` (`python:3.14-slim`
+  no builder/runtime e `ghcr.io/astral-sh/uv:0.12` no `COPY --from=`) e as
+  imagens do `docker-compose.yml` são fixadas por `@sha256:<digest>` (não por
+  tag mutável); a atualização dos digests é automatizada via Renovate/Dependabot
+  (Docker digest updates).
 - **`--forwarded-allow-ips` do uvicorn**: deve permanecer no **default restrito**
   (`127.0.0.1`). A fonte da verdade do IP do cliente é o `resolve_client_ip` da
   app (`TRUST_PROXY`/`NUM_TRUSTED_PROXIES`). Habilitar `--forwarded-allow-ips="*"`

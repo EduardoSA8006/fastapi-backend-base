@@ -1,11 +1,13 @@
 # --- Estágio de build: resolve dependências num venv isolado via uv ---
-# H2: fixe a base por DIGEST em produção (uma re-publicação da tag muda o
-# conteúdo). Obtenha com `docker buildx imagetools inspect python:3.14-slim`.
-FROM python:3.14-slim AS builder
+# H2: base fixada por DIGEST (uma re-publicação da tag não muda o conteúdo
+# usado no build). Digest mantido via Renovate/Dependabot (Docker digest
+# updates); para atualizar manualmente, use
+# `docker buildx imagetools inspect python:3.14-slim`.
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS builder
 
-# Copia o binário do uv de uma imagem oficial fixada (pin por tag; em produção
-# prefira pin por digest, mantido via Renovate/Dependabot).
-COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /bin/
+# Copia o binário do uv de uma imagem oficial fixada por digest (mesma
+# manutenção via Renovate/Dependabot).
+COPY --from=ghcr.io/astral-sh/uv:0.12@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 /uv /uvx /bin/
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,8 +24,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 
 # --- Estágio de runtime: slim, sem uv/pip/ferramentas de build ---
-# H2: fixe também esta base por digest (mesmo digest do builder).
-FROM python:3.14-slim AS runtime
+# H2: mesma base do builder, fixada pelo MESMO digest (garante a mesma imagem
+# em ambos os estágios).
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
