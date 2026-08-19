@@ -7,7 +7,7 @@
 #                   backend dedicados); a api entra só para despachar .kiq().
 services:
   db:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-db
     restart: unless-stopped
     networks:
@@ -68,7 +68,7 @@ services:
       - SETUID
 
   redis:
-    image: redis:8-alpine # (digest pin vem na Task C3)
+    image: redis:8-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241 # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-redis
     restart: unless-stopped
     # Instância dedicada do rate-limit — segmentada de redis-taskiq (ver
@@ -130,7 +130,7 @@ services:
       - ratelimit_net
 
   redis-taskiq:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241 # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-redis-taskiq
     restart: unless-stopped
     # Broker + result backend DEDICADOS do TaskIQ — instância separada do
@@ -183,13 +183,14 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    pids_limit: 128
     cpus: 0.5
     mem_limit: 192m
     networks:
       - taskiq_net
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772@sha256:cf3dadcfa1fb0324f43958bad1abba986d53c4ecc04d4d50b46c7dcda28bd3cd # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-minio
     restart: unless-stopped
     # `server /data` sobe o object store. `--console-address :9001` prende o
@@ -223,6 +224,7 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    pids_limit: 128
     cpus: 0.5
     mem_limit: 256m
     networks:
