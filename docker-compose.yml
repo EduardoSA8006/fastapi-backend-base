@@ -388,7 +388,13 @@ services:
         ["CMD-SHELL",
          "python -c \"import os,redis,sys; c=redis.from_url(os.environ['TASKIQ_BROKER_URL']); sys.exit(0 if c.get('myapp:taskiq:heartbeat') else 1)\""]
       interval: 60s
-      timeout: 5s
+      # 15s (não 5s): cold start do Python + import redis-py + connect + GET
+      # sob cpus: 0.25 mede 2.8-9.8s (idle a full-stack-load) — 5s flapava
+      # falso "unhealthy". 15s dá margem folgada sobre o pior caso observado
+      # (~10s) e ainda fica bem abaixo do interval (60s), sem sobrepor
+      # probes. Não enfraquece a detecção de scheduler morto: o marcador
+      # expira (TTL 180s) e o probe passa a retornar 1 de qualquer forma.
+      timeout: 15s
       retries: 3
       start_period: 210s
     read_only: true
