@@ -40,6 +40,13 @@ def _build_broker() -> AsyncBroker:
     equivalente ao acks_late + reject_on_worker_lost do Celery. Resultados
     expiram em 24h (o Redis do broker roda com noeviction; TTL finito evita
     encher). ORJSON explícito bloqueia pickle nas duas pontas.
+
+    Crash ≠ exceção da task: worker morto/travado deixa a mensagem pendente no
+    PEL, e ela é reentregue (reclamável) a outro consumer — é isso que
+    `when_executed` garante. Já uma task que RAISE é acked normalmente (o
+    Receiver captura a exceção, grava o erro no result backend e segue em
+    frente): NÃO há reentrega automática nesse caso. Idempotência e retry
+    explícito, se necessários, são responsabilidade da própria task.
     """
     if settings.taskiq_in_memory:
         return InMemoryBroker().with_serializer(ORJSONSerializer())

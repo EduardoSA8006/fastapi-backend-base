@@ -297,6 +297,27 @@ def test_scheduler_morto_marcador_expira_fica_unhealthy(stack: str) -> None:
             timeout=30,
         )
 
+    # Fecha o ciclo: confirma que o SIGCONT realmente devolveu o pipeline ao ar
+    # (risco de ordem-de-teardown que o `finally` acima, sozinho, não cobria).
+    # Uma vez descongelado, o scheduler publica o heartbeat de novo na próxima
+    # cadência (até taskiq_heartbeat_seconds, default 60s) e o healthcheck
+    # seguinte (interval 60s) já enxerga o marcador fresco -> volta a
+    # `healthy` — só precisa de 1 check bem-sucedido (diferente de virar
+    # unhealthy, que exige `retries` falhas seguidas). Deadline bounded e
+    # generoso (TTL de 180s + 2 intervalos de healthcheck de folga),
+    # fail-fast, sem sleep indefinido. Só roda se o bloco `try` acima não
+    # levantou exceção (senão o teste já falhou por outro motivo e este
+    # assert extra não deveria mascarar aquela falha original).
+    scheduler_recuperado = False
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
+        health = container_state("myapp-scheduler").get("Health", {}).get("Status")
+        if health == "healthy":
+            scheduler_recuperado = True
+            break
+        time.sleep(5)
+    assert scheduler_recuperado, "scheduler não voltou a healthy após o SIGCONT"
+
 
 def test_rate_limit_ponta_a_ponta_estoura_429(stack: str) -> None:
     """Rajada real contra endpoint NÃO isento (`/`) -> 429 com Retry-After.

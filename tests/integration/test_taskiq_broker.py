@@ -22,6 +22,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 import pytest
 from redis.asyncio import Redis
 from taskiq import AsyncBroker, TaskiqResult
+from taskiq.acks import AcknowledgeType
 from taskiq.api import run_receiver_task
 from taskiq.serializers import ORJSONSerializer
 from taskiq_redis import RedisAsyncResultBackend, RedisStreamBroker
@@ -108,14 +109,25 @@ async def test_task_que_falha_grava_erro_e_nao_reentrega_em_loop() -> None:
     """Confiabilidade sob task-exceção (modelo Streams do TaskIQ, NÃO Celery).
 
     Evidência empírica do TaskIQ 0.12.4 instalado: com `RedisStreamBroker` e o
-    Receiver default (`ack_type=WHEN_SAVED`), uma task que simplesmente RAISE é
-    *executada* (rodou, mesmo lançando), o erro é gravado no result backend e a
-    mensagem é ACKED. NÃO há reentrega automática por exceção — o worker não
-    fica em loop reprocessando a mesma falha.
+    Receiver rodando com `ack_type=WHEN_EXECUTED` — o MESMO ack-type que o
+    worker real usa em produção (`--ack-type when_executed`, ver
+    `docker-compose.yml`) —, uma task que simplesmente RAISE é *executada*
+    (rodou, mesmo lançando), o erro é gravado no result backend e a mensagem é
+    ACKED. NÃO há reentrega automática por exceção — o worker não fica em loop
+    reprocessando a mesma falha.
 
     A garantia de confiabilidade REAL aqui não é "reexecuta até passar" (isso é
     Celery), e sim: o trabalho NÃO some em silêncio — a falha fica registrada
     (`result.is_err`) e o stream não acumula pendência (XPENDING zera).
+
+    Ack-mode-agnóstico por construção: essa garantia não depende de QUANDO o
+    ack é enviado (antes de executar / após executar / após salvar o
+    resultado), e sim de QUE o Receiver sempre ackar a mensagem depois de
+    capturar a exceção e persistir o erro — o ack em si não é condicional ao
+    sucesso da task em nenhum dos três modos. Por isso a conclusão vale tanto
+    para `WHEN_SAVED` (default do Receiver, usado nos outros testes deste
+    arquivo) quanto para `WHEN_EXECUTED` (usado abaixo, e o modo real do
+    worker em produção): nenhum dos dois transforma exceção em reentrega.
     """
     with redis_container(_PASSWORD) as base:
         backend: RedisAsyncResultBackend[object] = RedisAsyncResultBackend(
@@ -134,7 +146,11 @@ async def test_task_que_falha_grava_erro_e_nao_reentrega_em_loop() -> None:
             raise RuntimeError("estouro proposital na task")
 
         await broker.startup()
-        worker = asyncio.create_task(run_receiver_task(broker, run_startup=False))
+        worker = asyncio.create_task(
+            run_receiver_task(
+                broker, run_startup=False, ack_time=AcknowledgeType.WHEN_EXECUTED
+            )
+        )
         try:
             task = broker.find_task("core.boom")
             assert task is not None, "task core.boom não registrada no broker"
@@ -147,7 +163,8 @@ async def test_task_que_falha_grava_erro_e_nao_reentrega_em_loop() -> None:
             assert result.return_value is None
             assert result.error is not None, "erro não deveria vazar como None"
 
-            # A mensagem foi ACKED (WHEN_SAVED): sem reentrega pendente no PEL.
+            # A mensagem foi ACKED (WHEN_EXECUTED, o mesmo modo de produção):
+            # sem reentrega pendente no PEL.
             inspector = Redis.from_url(f"{base}/0")
             try:
 
