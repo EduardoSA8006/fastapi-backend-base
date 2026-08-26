@@ -62,3 +62,23 @@ def test_ready_redis_ok_com_redis_real(redis_url: str) -> None:
     response = client.get("/api/v1/ready")
     assert response.status_code == 200
     assert response.json()["checks"]["redis"] == "ok"
+
+
+def test_ready_redis_error_com_redis_indisponivel() -> None:
+    # Contraparte de erro do check de Redis no /ready (health/router.py:75):
+    # rate-limit ligado apontando para um endereço redis MORTO (porta fechada)
+    # -> o ping estoura, o ramo de exceção marca checks["redis"]="error" e o
+    # readiness responde 503. Sem container (endereço propositalmente inerte).
+    app = create_app(
+        Settings(
+            rate_limit_enabled=True,
+            rate_limit_storage_uri="redis://127.0.0.1:6399/0",
+            trusted_hosts=["testserver"],
+            readiness_cache_seconds=0,
+        )
+    )
+    response = TestClient(app).get("/api/v1/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not ready"
+    assert body["checks"]["redis"] == "error"

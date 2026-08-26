@@ -64,6 +64,27 @@ jobs:
       - name: Testes de integração (testcontainers)
         run: uv run pytest -m integration --no-cov
 
+  # Cobertura combinada (unit + integração), gate 100% via statement coverage.
+  # Roda as duas suítes in-process no mesmo processo pytest-cov (unit então
+  # integração com --cov-append) para acumular no mesmo .coverage — e2e fica
+  # de fora (app roda em container separado, fora do processo de teste).
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Instalar dependências
+        run: uv sync --frozen
+
+      - name: Cobertura combinada (unit+integração, gate 100%)
+        run: bash scripts/coverage.sh
+
   # E2E: sobe o stack compose completo (projetos isolados myapp-e2e*) e o
   # ataca de fora com httpx — inclui o invariante de isolamento de rede e o
   # stack em modo production com credenciais fortes geradas no teste.

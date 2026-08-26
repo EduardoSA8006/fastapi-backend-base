@@ -115,24 +115,8 @@ def test_streaming_response_is_not_buffered_and_gets_headers() -> None:
 
 async def test_passa_direto_scope_nao_http() -> None:
     # lifespan/websocket não recebem headers — passthrough puro.
-    from starlette.types import Message
+    from tests.core.conftest import assert_non_http_scope_passthrough
 
-    called: dict[str, bool] = {}
-
-    async def _inner(scope: object, receive: object, send: object) -> None:
-        called["ok"] = True
-        # Identidade dos argumentos: o passthrough repassa EXATAMENTE o que
-        # recebeu (mutantes scope/receive/send -> None sobreviviam sem isto).
-        assert scope is expected_scope
-        assert receive is _receive
-        assert send is _send
-
-    async def _receive() -> Message:
-        return {"type": "lifespan.startup"}
-
-    async def _send(message: Message) -> None:
-        pass
-
-    expected_scope = {"type": "lifespan"}
-    await SecurityHeadersMiddleware(_inner)(expected_scope, _receive, _send)
-    assert called == {"ok": True}
+    await assert_non_http_scope_passthrough(
+        SecurityHeadersMiddleware, hsts_enabled=False
+    )

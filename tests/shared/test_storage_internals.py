@@ -8,21 +8,10 @@ não fixava o comportamento. Aqui um stub GRAVADOR pina as interações.
 from typing import Any
 
 import pytest
-from minio.error import S3Error
 
 from app.shared import storage
 from app.shared.storage import StorageUnavailableError
-
-
-def _s3_error(code: str) -> S3Error:
-    return S3Error(
-        code=code,
-        message="stub",
-        resource="/x",
-        request_id="r",
-        host_id="h",
-        response=None,  # type: ignore[arg-type]
-    )
+from tests.shared.conftest import make_s3_error, reset_storage_singleton
 
 
 class _RecordingClient:
@@ -42,7 +31,7 @@ class _RecordingClient:
     def make_bucket(self, bucket: str) -> None:
         self.calls.append(("make_bucket", (bucket,), {}))
         if self._make_bucket_code is not None:
-            raise _s3_error(self._make_bucket_code)
+            raise make_s3_error(self._make_bucket_code)
 
     def put_object(self, **kwargs: Any) -> None:
         self.calls.append(("put_object", (), kwargs))
@@ -50,9 +39,7 @@ class _RecordingClient:
 
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(storage, "_client", None)
-    monkeypatch.setattr(storage, "_client_spec", None)
-    storage._known_buckets.clear()
+    reset_storage_singleton(monkeypatch)
 
 
 def _wire(monkeypatch: pytest.MonkeyPatch, client: _RecordingClient) -> None:

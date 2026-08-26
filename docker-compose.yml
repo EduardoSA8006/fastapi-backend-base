@@ -7,7 +7,7 @@
 #                   backend dedicados); a api entra só para despachar .kiq().
 services:
   db:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-db
     restart: unless-stopped
     networks:
@@ -30,28 +30,107 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # Endurecimento do container (sem read_only: o Postgres grava em PGDATA):
+    security_opt:
+      - no-new-privileges:true # impede escalonamento via setuid
+    cpus: 1.0                  # teto de CPU
+    mem_limit: 256m            # teto de memória
+    pids_limit: 128            # limita fork bombs
+    # cap_drop: ALL + o MENOR cap_add que sobe `healthy`, determinado
+    # EMPIRICAMENTE (não às cegas): partindo do superconjunto candidato
+    # [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID], removendo UMA cap por vez e
+    # re-testando tanto o first-boot (initdb, volume limpo) quanto o restart com
+    # dados existentes. Matriz obtida (remover a cap do conjunto cheio → sobe?):
+    #   - sem CHOWN       → QUEBRA no first-boot: `chown /var/lib/postgresql/data:
+    #                       Operation not permitted` (initdb precisa dar chown do
+    #                       PGDATA para o usuário postgres).
+    #   - sem DAC_OVERRIDE→ first-boot OK, mas QUEBRA no restart-com-dados:
+    #                       `find /var/lib/postgresql/data: Permission denied` (o
+    #                       entrypoint, como root, varre o PGDATA já pertencente
+    #                       ao postgres; sem DAC_OVERRIDE o root fica sem bypass
+    #                       de permissão de diretório).
+    #   - sem FOWNER      → OK em first-boot E restart → FOWNER é DESNECESSÁRIA
+    #                       (CHOWN+DAC_OVERRIDE já cobrem os ajustes de dono/perm).
+    #   - sem SETGID      → QUEBRA: `gosu: failed switching to 'postgres':
+    #                       operation not permitted` (setgid ao trocar de usuário).
+    #   - sem SETUID      → QUEBRA: mesmo erro do gosu (setuid ao trocar de usuário).
+    # Conjunto MÍNIMO que sobe healthy (first-boot E restart): abaixo.
+    #   CHOWN        → initdb dá chown do PGDATA para o usuário postgres.
+    #   DAC_OVERRIDE → o entrypoint (root) percorre/lê o PGDATA do postgres no
+    #                  restart com dados já existentes.
+    #   SETGID+SETUID→ o gosu troca de root para o usuário postgres no boot.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
 
   redis:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241 # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-redis
     restart: unless-stopped
-    # Exige senha mesmo na rede interna (um container comprometido não conecta
-    # sem credencial; impede FLUSHALL/leitura anônima das chaves do rate-limit).
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-myapp}"]
+    # Instância dedicada do rate-limit — segmentada de redis-taskiq (ver
+    # ratelimit_net acima). Mesmo hardening do broker: `sh -c` para a senha vir
+    # do environment (expandida pelo shell do container, não fica no argv
+    # visível do compose):
+    #   - rename-command "": desativa comandos destrutivos/de reconhecimento
+    #     (um container comprometido não consegue FLUSH/varrer/reconfigurar);
+    #   - maxmemory + noeviction: fail-closed — quando cheio, escrita falha
+    #     alto (monitorável) em vez de descartar chaves de rate-limit
+    #     silenciosamente, o que abriria uma janela sem limite;
+    #   - appendonly no + save "": contadores de rate-limit são transitórios,
+    #     não precisam de durabilidade em disco. `save ""` desativa os
+    #     save-points de RDB (além do AOF já desligado) — sem isso, o
+    #     BGSAVE automático falha sob cap_drop: ALL (root perde
+    #     DAC_OVERRIDE e não consegue gravar em /data, dono do uid 999 da
+    #     imagem), e o Redis passa a recusar TODAS as escritas
+    #     (stop-writes-on-bgsave-error).
+    command:
+      - sh
+      - -c
+      - >
+        exec redis-server
+        --requirepass "$$REDIS_PASSWORD"
+        --rename-command FLUSHALL ""
+        --rename-command FLUSHDB ""
+        --rename-command KEYS ""
+        --rename-command CONFIG ""
+        --rename-command DEBUG ""
+        --maxmemory 64mb
+        --maxmemory-policy noeviction
+        --appendonly no
+        --save ""
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-myapp}
     # Sem `ports:` — o Redis NÃO é exposto ao host. Acessível apenas pela rede
     # interna do Docker (pelo serviço `api`), via o hostname `redis`.
     expose:
       - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-myapp}", "ping"]
+      # REDISCLI_AUTH (env) em vez de `-a senha`: a credencial não aparece em
+      # `ps`/argv dentro do container durante o probe.
+      test:
+        [
+          "CMD-SHELL",
+          'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG',
+        ]
       interval: 5s
       timeout: 3s
       retries: 5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    cpus: 0.5
+    mem_limit: 128m
     networks:
       - ratelimit_net
 
   redis-taskiq:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241 # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-redis-taskiq
     restart: unless-stopped
     # Broker + result backend DEDICADOS do TaskIQ — instância separada do
@@ -62,8 +141,13 @@ services:
     #     (um task comprometido não consegue FLUSH/varrer/reconfigurar);
     #   - maxmemory + noeviction: broker NUNCA descarta mensagens
     #     silenciosamente — quando cheio, escrita falha alto (monitorável);
-    #   - appendonly no: filas são transitórias; durabilidade vem do
-    #     acks_late + redelivery, não do disco.
+    #   - appendonly no + save "": filas são transitórias; durabilidade vem
+    #     do acks_late + redelivery, não do disco. `save ""` desativa os
+    #     save-points de RDB (além do AOF já desligado) — sem isso, o
+    #     BGSAVE automático falha sob cap_drop: ALL (root perde
+    #     DAC_OVERRIDE e não consegue gravar em /data, dono do uid 999 da
+    #     imagem), e o Redis passa a recusar TODAS as escritas
+    #     (stop-writes-on-bgsave-error) — quebrando broker/scheduler.
     command:
       - sh
       - -c
@@ -78,6 +162,7 @@ services:
         --maxmemory 128mb
         --maxmemory-policy noeviction
         --appendonly no
+        --save ""
     environment:
       TASKIQ_REDIS_PASSWORD: ${TASKIQ_REDIS_PASSWORD:-myapp}
     # Sem `ports:` — não é exposto ao host; alcançável só em taskiq_net.
@@ -98,13 +183,14 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    pids_limit: 128
     cpus: 0.5
     mem_limit: 192m
     networks:
       - taskiq_net
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772@sha256:cf3dadcfa1fb0324f43958bad1abba986d53c4ecc04d4d50b46c7dcda28bd3cd # digest pin — atualizar via Renovate/Dependabot
     container_name: myapp-minio
     restart: unless-stopped
     # `server /data` sobe o object store. `--console-address :9001` prende o
@@ -138,6 +224,7 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    pids_limit: 128
     cpus: 0.5
     mem_limit: 256m
     networks:
@@ -303,7 +390,13 @@ services:
         ["CMD-SHELL",
          "python -c \"import os,redis,sys; c=redis.from_url(os.environ['TASKIQ_BROKER_URL']); sys.exit(0 if c.get('myapp:taskiq:heartbeat') else 1)\""]
       interval: 60s
-      timeout: 5s
+      # 15s (não 5s): cold start do Python + import redis-py + connect + GET
+      # sob cpus: 0.25 mede 2.8-9.8s (idle a full-stack-load) — 5s flapava
+      # falso "unhealthy". 15s dá margem folgada sobre o pior caso observado
+      # (~10s) e ainda fica bem abaixo do interval (60s), sem sobrepor
+      # probes. Não enfraquece a detecção de scheduler morto: o marcador
+      # expira (TTL 180s) e o probe passa a retornar 1 de qualquer forma.
+      timeout: 15s
       retries: 3
       start_period: 210s
     read_only: true

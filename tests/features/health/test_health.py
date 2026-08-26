@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
 from app.main import app, create_app
+from tests.conftest import make_settings
 
 client = TestClient(app)
 
@@ -34,10 +34,9 @@ def test_readiness_503_when_redis_unavailable() -> None:
     # mesmo com o banco de pé — diferente do /health (liveness), que segue 200.
     ready_client = TestClient(
         create_app(
-            Settings(
+            make_settings(
                 rate_limit_enabled=True,
                 rate_limit_storage_uri="redis://127.0.0.1:6399/0",
-                trusted_hosts=["testserver"],
             )
         )
     )
@@ -59,38 +58,22 @@ def test_readiness_cache_limita_idas_ao_backend() -> None:
     # responde 200; com TTL=0 (desligado), a falha aparece imediatamente.
     from app.core.database import build_engine
 
-    settings = Settings(
-        rate_limit_storage_uri="memory://",
-        trusted_hosts=["testserver"],
-        readiness_cache_seconds=60.0,
-    )
+    settings = make_settings(readiness_cache_seconds=60.0)
     app_cached = create_app(settings)
     client_cached = TestClient(app_cached)
     assert client_cached.get("/api/v1/ready").status_code == 200
     # Backend "cai": engine trocado por um que aponta para porta morta.
     app_cached.state.db_engine = build_engine(
-        Settings(
-            database_url="postgresql+psycopg://x:x@127.0.0.1:6399/x",
-            rate_limit_storage_uri="memory://",
-            trusted_hosts=["testserver"],
-        )
+        make_settings(database_url="postgresql+psycopg://x:x@127.0.0.1:6399/x")
     )
     assert client_cached.get("/api/v1/ready").status_code == 200  # cacheado
 
     # TTL=0 desliga o cache: mesma sequência detecta a queda na hora.
-    settings_off = Settings(
-        rate_limit_storage_uri="memory://",
-        trusted_hosts=["testserver"],
-        readiness_cache_seconds=0.0,
-    )
+    settings_off = make_settings(readiness_cache_seconds=0.0)
     app_off = create_app(settings_off)
     client_off = TestClient(app_off)
     assert client_off.get("/api/v1/ready").status_code == 200
     app_off.state.db_engine = build_engine(
-        Settings(
-            database_url="postgresql+psycopg://x:x@127.0.0.1:6399/x",
-            rate_limit_storage_uri="memory://",
-            trusted_hosts=["testserver"],
-        )
+        make_settings(database_url="postgresql+psycopg://x:x@127.0.0.1:6399/x")
     )
     assert client_off.get("/api/v1/ready").status_code == 503

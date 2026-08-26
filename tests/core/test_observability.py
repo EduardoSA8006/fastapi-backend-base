@@ -4,19 +4,12 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
 from app.main import create_app
+from tests.conftest import make_settings
 
 
 def _client() -> TestClient:
-    return TestClient(
-        create_app(
-            Settings(
-                rate_limit_storage_uri="memory://",
-                trusted_hosts=["testserver"],
-            )
-        )
-    )
+    return TestClient(create_app(make_settings()))
 
 
 def test_request_id_generated_when_absent() -> None:
@@ -50,15 +43,7 @@ def test_overlong_request_id_is_replaced() -> None:
 def test_client_ip_not_logged_when_disabled(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    client = TestClient(
-        create_app(
-            Settings(
-                rate_limit_storage_uri="memory://",
-                trusted_hosts=["testserver"],
-                log_client_ip=False,
-            )
-        )
-    )
+    client = TestClient(create_app(make_settings(log_client_ip=False)))
     with caplog.at_level(logging.INFO, logger="myapp.access"):
         client.get("/api/v1/health")
     access_lines = [r.getMessage() for r in caplog.records]
@@ -71,14 +56,7 @@ def test_client_ip_logged_from_xff_when_trust_proxy(
     # Atrás de proxy confiável, o log usa o IP real do X-Forwarded-For (mesma
     # derivação do rate-limit), não o IP da conexão.
     client = TestClient(
-        create_app(
-            Settings(
-                rate_limit_storage_uri="memory://",
-                trusted_hosts=["testserver"],
-                trust_proxy=True,
-                num_trusted_proxies=1,
-            )
-        )
+        create_app(make_settings(trust_proxy=True, num_trusted_proxies=1))
     )
     with caplog.at_level(logging.INFO, logger="myapp.access"):
         client.get("/api/v1/health", headers={"X-Forwarded-For": "9.9.9.9"})
@@ -98,12 +76,7 @@ def test_rejection_is_logged_as_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     client = TestClient(
-        create_app(
-            Settings(
-                rate_limit_storage_uri="memory://",
-                trusted_hosts=["example.com"],  # rejeita o host "testserver"
-            )
-        )
+        create_app(make_settings(trusted_hosts=["example.com"]))  # rejeita "testserver"
     )
     with caplog.at_level(logging.WARNING, logger="myapp.access"):
         response = client.get("/api/v1/health")
@@ -155,26 +128,7 @@ async def test_access_log_registra_500_quando_excecao_escapa(
 
 
 async def test_passa_direto_scope_nao_http() -> None:
-    from starlette.types import Message
-
     from app.core.middleware.observability import RequestContextMiddleware
+    from tests.core.conftest import assert_non_http_scope_passthrough
 
-    called: dict[str, bool] = {}
-
-    async def _inner(scope: object, receive: object, send: object) -> None:
-        called["ok"] = True
-        # Identidade dos argumentos: o passthrough repassa EXATAMENTE o que
-        # recebeu (mutantes scope/receive/send -> None sobreviviam sem isto).
-        assert scope is expected_scope
-        assert receive is _receive
-        assert send is _send
-
-    async def _receive() -> Message:
-        return {"type": "lifespan.startup"}
-
-    async def _send(message: Message) -> None:
-        pass
-
-    expected_scope = {"type": "lifespan"}
-    await RequestContextMiddleware(_inner)(expected_scope, _receive, _send)
-    assert called == {"ok": True}
+    await assert_non_http_scope_passthrough(RequestContextMiddleware)

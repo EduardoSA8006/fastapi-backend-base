@@ -9,6 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # de produção (Host, store do rate-limit, DEBUG, senha de banco) e exporia /docs.
 _VALID_ENVIRONMENTS = frozenset({"development", "staging", "production"})
 
+# Timeout curto p/ probes Redis (limiter e /ready) não pendurarem a request.
+REDIS_PROBE_TIMEOUT_SECONDS = 2
+
 
 class Settings(BaseSettings):
     """Configurações da aplicação carregadas de variáveis de ambiente."""

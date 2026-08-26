@@ -13,8 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 from testcontainers.postgres import PostgresContainer
 
-from app.core.config import Settings
 from app.main import create_app
+from tests.conftest import make_settings
 
 pytestmark = pytest.mark.integration
 
@@ -56,13 +56,7 @@ def test_alembic_upgrade_head_em_banco_limpo(pg_url: str) -> None:
 
 def test_ready_database_ok_com_postgres_real(pg_url: str) -> None:
     # Caminho feliz do /ready contra Postgres de verdade (pool + psycopg).
-    app = create_app(
-        Settings(
-            database_url=pg_url,
-            rate_limit_storage_uri="memory://",
-            trusted_hosts=["testserver"],
-        )
-    )
+    app = create_app(make_settings(database_url=pg_url))
     client = TestClient(app)
     response = client.get("/api/v1/ready")
     assert response.status_code == 200
@@ -79,10 +73,8 @@ def test_ready_503_quando_banco_cai() -> None:
     stopped = False
     try:
         app = create_app(
-            Settings(
+            make_settings(
                 database_url=pg.get_connection_url(),
-                rate_limit_storage_uri="memory://",
-                trusted_hosts=["testserver"],
                 # Sem cache do /ready: o teste derruba o banco NO MEIO e
                 # precisa ver a falha na chamada seguinte.
                 readiness_cache_seconds=0.0,

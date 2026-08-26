@@ -96,3 +96,32 @@ def test_scheduler_dispara_heartbeat_e_worker_grava_marcador(broker_base: str) -
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=10)
+
+
+async def test_ping_grava_marcador_in_process(
+    broker_base: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Complementa o teste ponta-a-ponta acima: aquele roda o corpo da task em
+    # SUBPROCESSOS (o worker real), então a escrita do marcador (worker.py:89-96)
+    # não é medida pela coverage.py deste processo. Aqui chamamos a FUNÇÃO
+    # subjacente da task IN-PROCESS (`ping.original_func`, o corpo puro exposto
+    # pelo AsyncTaskiqDecoratedTask do taskiq 0.12.x — NÃO `.kiq()`, que
+    # enfileiraria para um worker) contra um Redis REAL com `taskiq_in_memory`
+    # desligado, cobrindo a escrita do marcador na medição combinada.
+    import app.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod.settings, "taskiq_in_memory", False)
+    monkeypatch.setattr(worker_mod.settings, "taskiq_broker_url", f"{broker_base}/0")
+    monkeypatch.setattr(worker_mod.settings, "taskiq_heartbeat_seconds", 1.0)
+
+    result = await worker_mod.ping.original_func()
+    assert result == "pong"
+
+    client = redis_lib.from_url(f"{broker_base}/0", socket_timeout=5)
+    try:
+        assert client.get(worker_mod.HEARTBEAT_KEY) == b"pong"
+        # TTL efetivo (3x a cadência) foi aplicado: o marcador expira sozinho.
+        assert 0 < client.ttl(worker_mod.HEARTBEAT_KEY) <= 3
+    finally:
+        client.delete(worker_mod.HEARTBEAT_KEY)
+        client.close()

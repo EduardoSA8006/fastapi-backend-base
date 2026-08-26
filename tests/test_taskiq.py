@@ -177,3 +177,17 @@ def test_worker_healthcheck_usa_task_dedicada() -> None:
     assert not hasattr(hc, "ping"), (
         "worker_healthcheck não deve importar/usar o ping agendado"
     )
+
+
+def test_build_broker_real_path_usa_orjson(monkeypatch: pytest.MonkeyPatch) -> None:
+    # taskiq_in_memory=False → RedisStreamBroker + result backend ORJSON.
+    # Só constrói objetos (não conecta). Cobre app/worker.py:51-56.
+    from taskiq.serializers import ORJSONSerializer
+    from taskiq_redis import RedisStreamBroker
+
+    import app.worker as worker_mod
+
+    monkeypatch.setattr(worker_mod.settings, "taskiq_in_memory", False)
+    broker = worker_mod._build_broker()
+    assert isinstance(broker, RedisStreamBroker)
+    assert isinstance(broker.serializer, ORJSONSerializer)
